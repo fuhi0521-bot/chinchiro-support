@@ -22,6 +22,7 @@ description: "麻雀（日本リーチ麻雀）の専用エージェント。何
 | 「オーラス、条件は？」 | § 着順条件 | `references/placement.md` |
 | 「今日の対局を振り返って」 | § 振り返り | `references/training.md` |
 | 「テンパイしてる？」（河読み） | § 読み | `references/reading.md` |
+| 「この待ち、山に残ってる？」 | § 読み | `references/wall-reading.md` |
 
 情報が足りないときは、**全部聞き返さず、いちばん効く1つだけ聞く**。
 巡目とドラが分かれば大半の質問には答えられる。写真から読み取れるものは聞かない。
@@ -207,7 +208,8 @@ python3 $S noten   --tenpai 2                  # ノーテン罰符
 | `references/efficiency.md` | 牌効率、5ブロック、ターツ序列、形の名前、定型の何切る |
 | `references/push-fold.md` | 押し引きの詳細、回し打ち、ベタオリ、放銃率 |
 | `references/reading.md` | 河読み、副露読み、ダマテン察知、危険度、壁とスジ |
-| `references/wait-selection.md` | 待ち取り、山読み、残り枚数の数え方 |
+| `references/wait-selection.md` | 待ち取り、残り枚数の数え方 |
+| `references/wall-reading.md` | 山読み。「その牌はまだ山にあるか」の実測値 |
 | `references/probability.md` | 配牌分布、有効牌を引ける確率、実戦の統計値 |
 | `references/edge-cases.md` | フリテン・槓・流局・ダブロン・包など、迷いやすい細部 |
 | `references/calls.md` | 鳴き判断、鳴いてよい形・悪い形、喰い替え、後付け |
