@@ -147,11 +147,33 @@ def cmd_noten(args) -> None:
         print(f"テンパイ者: +{gain}点 / ノーテン者: -{pay}点")
 
 
+def cmd_oorasu(args) -> None:
+    from .placement import describe, rank_after_draw, ranking
+
+    scores = [int(x) for x in args.scores.replace(",", " ").split()]
+    if len(scores) != 4:
+        raise TileError("点数は4人ぶん指定してください（例: --scores 24000,25000,25500,25500）")
+    me, dealer = args.me, args.dealer
+    order = ranking(scores)
+    print("席   点数    着順")
+    for i in range(4):
+        mark = " ←自分" if i == me else ("  (親)" if i == dealer else "")
+        print(f"{i}  {scores[i]:>6}   {order.index(i) + 1}着{mark}")
+    print()
+    print(describe(scores, me, dealer, args.honba, args.sticks))
+    print()
+    print(f"流局: 自分だけテンパイ → {rank_after_draw(scores, me, {me}) + 1}着 / "
+          f"自分だけノーテン → {rank_after_draw(scores, me, {i for i in range(4) if i != me}) + 1}着")
+
+
 def cmd_match(args) -> None:
     from .tournament import match
     from .simulate import report
 
-    total = match(args.hanchan, seed=args.seed, workers=args.workers)
+    total = match(
+        args.hanchan, seed=args.seed, workers=args.workers,
+        lineup=args.lineup, awareness=args.awareness,
+    )
     print(report(total, args.hanchan))
 
 
@@ -217,10 +239,22 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--early", action="store_true", help="序盤（字牌の危険度を下げる）")
     s.set_defaults(func=cmd_danger)
 
+    s = sub.add_parser("oorasu", help="オーラスの着順条件を計算する")
+    s.add_argument("--scores", "-s", required=True, help="4人の点数（席0から順に）例: 24000,25000,25500,25500")
+    s.add_argument("--me", "-m", type=int, required=True, help="自分の席 0-3")
+    s.add_argument("--dealer", "-d", type=int, default=3, help="親の席 0-3")
+    s.add_argument("--honba", type=int, default=0)
+    s.add_argument("--sticks", type=int, default=0, help="場に出ているリーチ棒")
+    s.set_defaults(func=cmd_oorasu)
+
     s = sub.add_parser("match", help="4人のAI雀士で対戦させる")
     s.add_argument("--hanchan", "-n", type=int, default=100)
     s.add_argument("--seed", type=int, default=1)
     s.add_argument("--workers", "-j", type=int, default=0, help="並列プロセス数（0で自動）")
+    s.add_argument("--lineup", default="named", choices=["named", "awareness"],
+                   help="named=4人の雀士 / awareness=状況判断の段階だけを変えた4人")
+    s.add_argument("--awareness", default="none", choices=["none", "allast", "south", "always"],
+                   help="named のとき、4人全員に適用する状況判断の範囲")
     s.set_defaults(func=cmd_match)
 
     s = sub.add_parser("noten", help="ノーテン罰符")

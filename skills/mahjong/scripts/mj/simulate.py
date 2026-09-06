@@ -16,7 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from .game import Game
-from .players import make_players
+from .players import make_awareness_lab, make_players
 
 ROUND_NAMES = ["東", "南", "西"]
 
@@ -146,8 +146,19 @@ def play_hanchan(ai_players, rng, start_offset=0):
     return stats
 
 
-def run(n: int, seed: int = 0, progress=None):
-    ai = make_players()
+def build_lineup(lineup: str = "named", awareness: str = "none"):
+    """対戦カードを作る。
+
+    named     : ゆうだい / なおき / きくちゃん / ゆみこ（awareness を全員に適用）
+    awareness : 状況判断の範囲だけを変えた4人（ベース戦術は共通）
+    """
+    if lineup == "awareness":
+        return make_awareness_lab()
+    return make_players(awareness)
+
+
+def run(n: int, seed: int = 0, progress=None, lineup: str = "named", awareness: str = "none"):
+    ai = build_lineup(lineup, awareness)
     rng = random.Random(seed)
     total = {p.name: Stats() for p in ai}
     for i in range(n):

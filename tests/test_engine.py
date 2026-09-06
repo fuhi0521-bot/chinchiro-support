@@ -212,6 +212,84 @@ def test_no_yakuless_wins():
             assert pts > 0
 
 
+
+# --- 着順とオーラスの条件計算 -----------------------------------------------
+
+from mj import placement  # noqa: E402
+
+
+def test_ranking_tiebreak():
+    """同点は起家（席0）に近いほうが上位。"""
+    assert placement.ranking([25000] * 4) == [0, 1, 2, 3]
+    assert placement.rank_of([24000, 26000, 25000, 25000], 2) == 1
+    assert placement.rank_of([24000, 26000, 25000, 25000], 3) == 2
+
+
+def test_all_last_requirements():
+    """1000点差は直撃1000点で逆転できる（点差が2倍動くため）。"""
+    scores = [24000, 25000, 25500, 25500]
+    req = placement.requirements(scores, me=0, dealer=3)
+    assert req["rank"] == 3
+    assert req["direct"][2] == 1000, req["direct"]
+    # 直撃で 25000 / 24000 になり、順位が入れ替わる
+    han, fu, pts = req["direct"]
+    from mj.score import base_points, payments
+
+    base, _ = base_points(han, fu)
+    pay = payments(base, is_dealer=False, is_tsumo=False)
+    after = placement.scores_after_win(scores, pay, me=0, dealer=3, is_tsumo=False, loser=1)
+    assert after[0] > after[1]
+    assert placement.rank_of(after, 0) < 3
+
+
+def test_tenpai_changes_placement():
+    """流局のテンパイ／ノーテンで着順が動くことを検出できる。"""
+    scores = [24000, 25000, 25500, 25500]
+    assert placement.rank_after_draw(scores, 0, {0}) == 0  # 1人テンパイなら +3000
+    assert placement.rank_after_draw(scores, 0, {1, 2, 3}) == 3
+
+
+def test_requirements_consistency():
+    """必要打点が本当に着順を上げるか、全パターンで検算する。"""
+    import random as _r
+
+    rng = _r.Random(4)
+    for _ in range(300):
+        scores = [25000 + rng.randrange(-15, 16) * 1000 for _ in range(4)]
+        me = rng.randrange(4)
+        dealer = rng.randrange(4)
+        req = placement.requirements(scores, me, dealer)
+        if req.get("already"):
+            continue
+        from mj.score import base_points, payments
+
+        for loser, (han, fu, _pts) in req["ron"].items():
+            base, _ = base_points(han, fu)
+            pay = payments(base, is_dealer=(me == dealer), is_tsumo=False)
+            after = placement.scores_after_win(scores, pay, me, dealer, False, loser=loser)
+            assert placement.rank_of(after, me) <= req["target"]
+        if req["tsumo"]:
+            han, fu, _t, _txt = req["tsumo"]
+            base, _ = base_points(han, fu)
+            pay = payments(base, is_dealer=(me == dealer), is_tsumo=True)
+            after = placement.scores_after_win(scores, pay, me, dealer, True)
+            assert placement.rank_of(after, me) <= req["target"]
+
+
+def test_situational_players_run():
+    """状況判断つきの4人が最後まで打てること。"""
+    import random as _r
+
+    from mj.simulate import play_hanchan
+    from mj.players import make_awareness_lab, make_players
+
+    for ai in (make_awareness_lab(), make_players("always")):
+        rng = _r.Random(2)
+        for i in range(3):
+            stats = play_hanchan(ai, rng, start_offset=i)
+            assert sum(s.hanchan for s in stats.values()) == 4
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

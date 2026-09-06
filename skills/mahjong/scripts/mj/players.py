@@ -11,7 +11,7 @@ import math
 import random
 from dataclasses import dataclass
 
-from . import fast
+from . import fast, placement
 from .safety import danger
 from .tiles import DRAGONS, HONOR, NUM_TILES, YAOCHU_SET, rank_of
 
@@ -51,6 +51,10 @@ class Style:
     safety_weight: float = 1.0  # 押すときの安全牌への寄り
     value_weight: float = 1.0  # 打点への寄り（受け入れを削ってでも打点を取るか）
     last_place_desperation: float = 0.15  # ラス目で押しを緩める量
+    awareness: str = "none"  # 点数状況を見る範囲: none / allast / south / always
+    top_caution: float = 0.0  # トップ目のとき押しを引く量
+    low_aggression: float = 0.0  # 下位のとき押しを足す量（ラス目に満額、3着に半分）
+    allast_conditions: bool = False  # オーラスの条件計算（ダマ・見逃し・形式テンパイ）を使うか
 
 
 def value_band(points: int) -> str:
@@ -83,14 +87,17 @@ class Player:
 
     # ------------------------------------------------------------ 見積り
 
-    def estimate_value(self, view) -> int:
-        """自分の手の完成時打点をざっくり見積る（符は30-40符と仮定）。"""
+    def estimate_value(self, view, dama: bool = False) -> int:
+        """自分の手の完成時打点をざっくり見積る（符は30-40符と仮定）。
+
+        dama=True なら、リーチ・一発・裏ドラの上乗せを外した「ダマのままの打点」。
+        """
         me = view.me
         dora = sum(me.hand[d] for d in view.dora_tiles())
         for m in me.melds:
             dora += sum(1 for t in m.tiles if t in view.dora_tiles())
         han = dora + me.aka
-        if me.menzen:
+        if me.menzen and not dama:
             han += 2  # リーチ + ツモ/一発/裏 の期待上乗せ
         # 役牌の刻子・対子
         for t in list(DRAGONS) + [view.seat_wind, view.round_wind]:
@@ -109,6 +116,27 @@ class Player:
         table = {1: 1300, 2: 2600, 3: 5200, 4: 7700, 5: 8000, 6: 12000, 7: 12000}
         base = table.get(han, 16000 if han < 11 else 24000)
         return base if not view.is_dealer else int(base * 1.5)
+
+    # ------------------------------------------------------- 点数状況を見る
+
+    def _aware(self, view) -> bool:
+        """いま点数状況を見るべき局面か。"""
+        a = self.style.awareness
+        if a == "always":
+            return True
+        if a == "south":
+            return view.round_wind != 27
+        if a == "allast":
+            return view.is_all_last
+        return False
+
+    def _rank(self, view) -> int:
+        return placement.rank_of(view.scores, view.seat)
+
+    def _lead(self, view) -> int:
+        """トップとの差（自分がトップなら2着との差、正の値）。"""
+        s = sorted(view.scores, reverse=True)
+        return view.scores[view.seat] - s[1] if self._rank(view) == 0 else s[0] - view.scores[view.seat]
 
     def form_quality(self, view) -> str:
         """受け入れの広さから形の質を決める。"""
@@ -149,14 +177,47 @@ class Player:
             v -= 0.12
         if me.riichi:
             v = 1.0  # リーチ後は選択肢がない
-        # 着順補正: ラス目は押し、トップ目は引き
-        ranks = sorted(range(4), key=lambda i: -view.game.players[i].score)
-        my_rank = ranks.index(view.seat)
-        if my_rank == 3:
-            v += self.style.last_place_desperation
-        elif my_rank == 0 and view.game.round_wind != 27:
-            v -= 0.08
+        v += self._placement_bias(view)
         return v * threat_level + (1.0 - threat_level) * 1.0
+
+    def _placement_bias(self, view) -> float:
+        """点数状況による押し引きの補正。
+
+        「下位なら押す」と「トップ目なら引く」を別々のつまみにしてある。
+        どちらが効いているのかを実験で切り分けられるようにするため。
+        """
+        rank = self._rank(view)
+        st = self.style
+        if not self._aware(view):
+            # 状況を見ない打ち手も、ラス目とトップ目だけは最低限意識する
+            if rank == 3:
+                return st.last_place_desperation
+            if rank == 0 and view.round_wind != 27:
+                return -0.08
+            return 0.0
+
+        bias = 0.0
+        if rank == 3:
+            bias += st.low_aggression
+        elif rank == 2:
+            bias += st.low_aggression * 0.5
+        elif rank == 0:
+            bias -= st.top_caution * (1.4 if self._lead(view) >= 12000 else 1.0)
+
+        if view.is_all_last and st.allast_conditions:
+            if rank == 0:
+                bias -= 0.15  # アガれば終局。放銃だけを避ければいい
+            elif rank == 3:
+                bias += 0.15  # アガらないと終わり
+            # 終盤、テンパイかノーテンかで着順が動くなら形式テンパイを取りに行く
+            if view.turn >= 13:
+                near = min(
+                    (abs(s - view.scores[view.seat]) for i, s in enumerate(view.scores) if i != view.seat),
+                    default=99999,
+                )
+                if near <= 4000:
+                    bias += 0.20
+        return bias
 
     # ------------------------------------------------------------ 打牌
 
@@ -292,25 +353,97 @@ class Player:
         hand[discard] += 1
         value = self.estimate_value(view)
 
+        if width == 0 or view.wall_left < 4:
+            return False
+
+        # 点数状況で決まるなら、そちらを優先する
+        if self._aware(view) and st.allast_conditions:
+            decided = self._situational_riichi(view, width)
+            if decided is not None:
+                return decided
+
         # ダマのままで十分高い
         if value - (1300 if view.is_dealer else 1000) >= st.damaten_value and width <= 4:
             return False
         # 悪形・安手・終盤
         if not st.riichi_bad_wait_cheap and width <= 4 and value < 5200 and view.turn >= 12:
             return False
-        if width == 0:
-            return False
-        if view.wall_left < 4:
-            return False
         return True
+
+    def _situational_riichi(self, view, width):
+        """点数状況からリーチ／ダマを決める。決まらなければ None。"""
+        scores = view.scores
+        me = view.seat
+        rank = self._rank(view)
+        dama_value = self.estimate_value(view, dama=True)
+
+        if view.is_all_last:
+            if rank == 0:
+                # アガれば終局。リーチ棒1000点を出す理由がない。
+                # ただし誰も30000点に届かないと西入するので、その場合は普通に判断する
+                after = list(scores)
+                after[me] += dama_value
+                if max(after) >= 30000:
+                    return False
+                return None
+
+            req = placement.requirements(scores, me, view.kyoku, view.honba, view.sticks)
+            if req.get("already"):
+                # すでに条件を満たしている。形式テンパイで足りるのでリーチしない
+                return False
+            # 直撃と他家ロンで必要打点が違う。出やすいほうに合わせて、緩いほうを見る
+            needs = [v[2] for v in req["ron"].values()]
+            if not needs:
+                return True  # ロンでは届かない。打点を伸ばすしかない
+            need = min(needs)
+            # リーチ棒1000点ぶん条件がきつくなる
+            need += 1000
+            if dama_value >= need and width >= 3:
+                # ダマで足りる。リーチして相手を降ろすと出アガリの機会が減る
+                return False
+            return True
+
+        if (self.style.top_caution > 0 and rank == 0
+                and self._lead(view) >= 12000 and view.round_wind != 27):
+            # 大きくリードしている南場。リーチで押し込む必要がない
+            return False
+        return None
 
     # ------------------------------------------------------------ 和了・鳴き
 
     def want_tsumo(self, view) -> bool:
-        return True
+        return self._take_win(view, tsumo=True)
 
     def want_ron(self, view) -> bool:
-        return True
+        return self._take_win(view, tsumo=False)
+
+    def _take_win(self, view, tsumo: bool) -> bool:
+        """オーラスのラス目だけ、着順が上がらない和了は見逃す。
+
+        和了すると半荘が終わってラスが確定する。ラス目以外は、
+        見逃すと逆に落ちる危険があるので必ずアガる。
+        親も連荘できるのでアガる。
+        """
+        if not (self._aware(view) and self.style.allast_conditions and view.is_all_last):
+            return True
+        if view.is_dealer:
+            return True
+        if self._rank(view) != 3:
+            return True
+        if view.wall_left < 16:  # 残り4巡を切ったら、次の機会はもう無い
+            return True
+        me = view.me
+        win_tile = me.drawn if tsumo else view.discarded
+        if win_tile is None:
+            return True
+        r = view.game.score_hand(me, win_tile, tsumo=tsumo, extra=None if tsumo else win_tile)
+        if r is None or r.payment is None:
+            return True
+        new_rank = placement.rank_after_win(
+            view.scores, r.payment, view.seat, view.kyoku, tsumo,
+            loser=view.from_seat, sticks=view.sticks,
+        )
+        return new_rank < 3
 
     def want_abort(self, view) -> bool:
         return True
@@ -441,12 +574,46 @@ class Player:
         return None
 
 
-def make_players() -> list:
-    """4人の雀士。"""
+def make_awareness_lab() -> list:
+    """状況判断を要素ごとに分解した4人。ベース戦術は「なおき」で統一してある。
+
+    素直      : 点数状況を見ない（比較の土台）
+    オーラス型 : オーラスだけ条件計算する（ダマ判断・見逃し・形式テンパイ・押し引き）
+    攻め型    : 全局で「下位なら押す」だけ。トップ目の守りは入れない
+    守り型    : 全局で「トップ目なら引く」だけ。下位の押しは入れない
+
+    2〜4 をそれぞれ「素直」と比べれば、どの打ち回しが効いているかが分かる。
+    """
+    base = dict(
+        push=0.50,
+        call_min_value=3900,
+        call_max_shanten=1,
+        damaten_value=8000,
+        riichi_bad_wait_cheap=True,
+        safety_weight=1.0,
+        value_weight=1.0,
+        last_place_desperation=0.15,
+    )
+    return [
+        Player("素直", Style(**base, awareness="none")),
+        Player("オーラス型", Style(**base, awareness="allast", allast_conditions=True,
+                                low_aggression=0.25, top_caution=0.25)),
+        Player("攻め型", Style(**base, awareness="always", low_aggression=0.25, top_caution=0.0)),
+        Player("守り型", Style(**base, awareness="always", low_aggression=0.0, top_caution=0.25)),
+    ]
+
+
+def make_players(awareness: str = "none", **knobs) -> list:
+    """4人の雀士。awareness を指定すると全員に同じ状況判断を載せる。"""
+    extra = dict(knobs)
+    if awareness != "none" and not knobs:
+        extra = dict(allast_conditions=True, low_aggression=0.25, top_caution=0.0)
     return [
         Player(
             "ゆうだい",
             Style(
+                awareness=awareness,
+                **extra,
                 push=0.32,
                 call_min_value=3900,
                 call_max_shanten=2,
@@ -460,6 +627,8 @@ def make_players() -> list:
         Player(
             "なおき",
             Style(
+                awareness=awareness,
+                **extra,
                 push=0.50,
                 call_min_value=3900,
                 call_max_shanten=1,
@@ -473,6 +642,8 @@ def make_players() -> list:
         Player(
             "きくちゃん",
             Style(
+                awareness=awareness,
+                **extra,
                 push=0.45,
                 call_min_value=1000,
                 call_max_shanten=3,
@@ -486,6 +657,8 @@ def make_players() -> list:
         Player(
             "ゆみこ",
             Style(
+                awareness=awareness,
+                **extra,
                 push=0.64,
                 call_min_value=5200,
                 call_max_shanten=1,

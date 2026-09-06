@@ -607,6 +607,28 @@ class View:
     def round_wind(self):
         return self.game.round_wind
 
+    @property
+    def scores(self):
+        return [p.score for p in self.game.players]
+
+    @property
+    def honba(self):
+        return self.game.honba
+
+    @property
+    def sticks(self):
+        return self.game.sticks
+
+    @property
+    def kyoku(self):
+        """0-3 = 1〜4局。連荘中も親の席と一致する。"""
+        return self.game.dealer
+
+    @property
+    def is_all_last(self):
+        """オーラス（南4局／西4局）か。"""
+        return self.game.round_wind != 27 and self.game.dealer == 3
+
     def dora_tiles(self):
         return [dora_from_indicator(i) for i in self.game.dora_indicators]
 
