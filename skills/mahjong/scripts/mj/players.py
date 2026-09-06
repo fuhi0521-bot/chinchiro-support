@@ -719,6 +719,10 @@ class Player:
         st = self.style
         if me.riichi:
             return None
+        # 暗刻が3つある門前手は四暗刻が見えている。鳴いたら消える
+        if me.menzen and sum(1 for t in range(NUM_TILES) if me.hand[t] >= 3) >= 3:
+            return None
+
         cur = fast.shanten(me.hand, me.called)
         # 対子が多い手は七対子のシャンテンが良く出るので、ポンは必ず「損」に見える。
         # 対々和に向かうときだけは一般形どうしで比べる。
