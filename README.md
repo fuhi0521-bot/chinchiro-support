@@ -78,6 +78,16 @@ python3 tests/test_engine.py
 点数表は標準の値と全件照合済み。シャンテン計算はランダム4000ハンドで
 和了形判定との整合性を検証してある。
 
+## 4人のAI雀士で対戦させる
+
+性格の違う4人（`agents/README.md`）を戦わせて、方針の差が順位に出るかを見られる。
+
+```bash
+python3 skills/mahjong/scripts/mj.py match --hanchan 1000 -j 4
+```
+
+1000半荘の結果は `results/match-1000.txt`。
+
 ## 中身
 
 ```

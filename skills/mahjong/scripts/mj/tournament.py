@@ -19,6 +19,16 @@ def _worker(args):
     return pickle.dumps(run(n, seed=seed))
 
 
+def _progress_worker(args):
+    n, seed, tag = args
+    sys.setrecursionlimit(10000)
+
+    def note(i):
+        print(f"  worker{tag}: {i}/{n}", flush=True)
+
+    return pickle.dumps(run(n, seed=seed, progress=max(1, n // 10)))
+
+
 def match(hanchan: int, seed: int = 1, workers: int = 0):
     workers = workers or min(4, os.cpu_count() or 1)
     if workers <= 1:
@@ -28,7 +38,7 @@ def match(hanchan: int, seed: int = 1, workers: int = 0):
     jobs = [j for j in jobs if j[0] > 0]
     total = None
     with ProcessPoolExecutor(max_workers=len(jobs)) as ex:
-        for blob in ex.map(_worker, jobs):
+        for blob in ex.map(_progress_worker, [(n, sd, i) for i, (n, sd) in enumerate(jobs)]):
             part = pickle.loads(blob)
             if total is None:
                 total = {k: Stats() for k in part}

@@ -24,7 +24,7 @@ def _pareto(points) -> tuple:
     return tuple(sorted(set(out)))
 
 
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=200_000)
 def _profiles(counts: tuple, sequences: bool) -> tuple:
     """1グループ（1色、または字牌7種）の分解プロファイル。"""
     n = len(counts)
@@ -77,28 +77,22 @@ def _combine(a, b) -> tuple:
     return _pareto({(x[0] + y[0], x[1] + y[1], max(x[2], y[2])) for x in a for y in b})
 
 
-@lru_cache(maxsize=None)
-def _hand_profiles(key: tuple) -> tuple:
-    m, p, s, z = key
-    acc = _profiles(m, True)
-    for group, seq in ((p, True), (s, True), (z, False)):
-        acc = _combine(acc, _profiles(group, seq))
-    return acc
+def _hand_profiles(counts) -> tuple:
+    """4グループを畳み込む。キャッシュは色ごとの `_profiles` だけに置く。
 
-
-def _key(counts) -> tuple:
-    return (
-        tuple(counts[0:9]),
-        tuple(counts[9:18]),
-        tuple(counts[18:27]),
-        tuple(counts[27:34]),
-    )
+    手牌全体をキーにするとキーの種類が多すぎてメモリを使い切る。
+    重いのは色ごとの分解なので、そこだけ覚えておけば足りる。
+    """
+    acc = _profiles(tuple(counts[0:9]), True)
+    acc = _combine(acc, _profiles(tuple(counts[9:18]), True))
+    acc = _combine(acc, _profiles(tuple(counts[18:27]), True))
+    return _combine(acc, _profiles(tuple(counts[27:34]), False))
 
 
 def shanten_standard(counts, called: int = 0) -> int:
     """一般形のシャンテン数。`shanten.shanten_standard` と同じ値を返す。"""
     best = 8
-    for melds, partials, pair in _hand_profiles(_key(counts)):
+    for melds, partials, pair in _hand_profiles(counts):
         total = called + melds
         room = 5 - total
         if room < 0:

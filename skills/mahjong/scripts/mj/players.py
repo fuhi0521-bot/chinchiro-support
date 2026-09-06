@@ -67,7 +67,7 @@ class Player:
     def __init__(self, name: str, style: Style, rng=None):
         self.name = name
         self.style = style
-        self.rng = rng or random.Random(hash(name) & 0xFFFF)
+        self.rng = rng or random.Random(sum(ord(c) * (i + 1) for i, c in enumerate(name)))
 
     # 閾値ちょうどの局面は本当に「五分」なので、決定論的に降りない。
     # 基準表が「五分」と書いている行を、実際に五分の頻度で押すようにする。
