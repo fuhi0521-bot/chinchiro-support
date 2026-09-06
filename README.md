@@ -116,6 +116,7 @@ skills/mahjong/
     majsoul.md                雀魂のルール設定・段位・UI由来の注意点
     glossary.md               用語集
     training.md               上達ロードマップ・牌譜検討・Mortal/NAGA/MAKA
+    simulation-findings.md    数万半荘の実験から分かったことと、その理由
   scripts/
     mj.py                     CLI 入口
     mj/                       計算エンジン（tiles/shanten/efficiency/hand/score/yaku/safety）

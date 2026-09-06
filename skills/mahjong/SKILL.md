@@ -216,6 +216,7 @@ python3 $S noten   --tenpai 2                  # ノーテン罰符
 | `references/majsoul.md` | 雀魂のルール設定、段位とポイント、UI由来の注意点 |
 | `references/glossary.md` | 用語集 |
 | `references/training.md` | 上達ロードマップ、牌譜検討、Mortal/NAGA/MAKA の使い方 |
+| `references/simulation-findings.md` | 数万半荘のシミュレーションから分かったことと、その理由 |
 
 ## 断言してよいこと、してはいけないこと
 

@@ -61,11 +61,15 @@ def review(name: str, st, field: dict) -> list[Finding]:
     # --- 反省点 ---
     if win < field["win"] - 0.5:
         gap = field["win"] - win
+        # 押しで和了率を稼ぐのは割に合わないので、まず形の質を疑う
+        fix = "shape_aware / 鳴きの基準を見直す（押しで稼ぐのは割に合わない）"
+        if deal < field["deal"] - 1.5:
+            fix = "push を下げる（放銃率も低いので、押す余地がある）"
         out.append(Finding(
             "反省点",
             f"和了率 {win:.2f}% が場の平均より {gap:.2f}pt 低い。"
             f"平均順位で {gap * RANK_PER_WIN_PT:.3f} の損。**これが最大の問題**",
-            "push を下げる（押し引きの閾値を緩める）",
+            fix,
         ))
     if tenpai < field["tenpai"] - 3:
         out.append(Finding(
@@ -85,19 +89,24 @@ def review(name: str, st, field: dict) -> list[Finding]:
             f"平均和了打点 {avg_win:.0f}点 が低い。速いが安い",
             "value_weight を上げる / call_min_value を上げる",
         ))
+    # --- 実戦との違い（順位のための反省とは分ける） ---
+    #
+    # 実戦の統計に近づけることと、この卓で勝つことは別。
+    # 実際、副露率を実戦の32.6%に寄せた「かなめ鳴き絞」は
+    # 和了率が1.83pt落ちて平均順位も -0.064 悪化した。
+    # だからここは「直すべき欠点」ではなく「人間との違い」として出す。
     if abs(call - REAL["call"]) > 8:
-        d = "多すぎる" if call > REAL["call"] else "少なすぎる"
+        d = "多い" if call > REAL["call"] else "少ない"
         out.append(Finding(
-            "反省点",
-            f"副露率 {call:.1f}% が実戦の目安 {REAL['call']}% から離れている（{d}）",
-            "call_min_value / call_max_shanten を調整",
+            "実戦との違い",
+            f"副露率 {call:.1f}%（実戦の目安 {REAL['call']}%より{d}）。"
+            f"順位のためには直さなくてよい。人間らしさを上げたいときだけ調整する",
         ))
     if abs(riichi - REAL["riichi"]) > 5:
-        d = "多すぎる" if riichi > REAL["riichi"] else "少なすぎる"
+        d = "多い" if riichi > REAL["riichi"] else "少ない"
         out.append(Finding(
-            "反省点",
-            f"立直率 {riichi:.1f}% が実戦の目安 {REAL['riichi']}% から離れている（{d}）",
-            "damaten_value を調整",
+            "実戦との違い",
+            f"立直率 {riichi:.1f}%（実戦の目安 {REAL['riichi']}%より{d}）",
         ))
     if not out:
         out.append(Finding("良い点", "場の平均から大きく外れている指標はない"))
@@ -141,4 +150,7 @@ def report_all(total: dict) -> str:
     lines.append("※ 診断は「和了率1pt = 平均順位0.054」という実測の関係に基づく。")
     lines.append("   この環境では放銃率と順位の相関が逆（-0.857）なので、")
     lines.append("   放銃を減らす方向の改善は順位に繋がらない。")
+    lines.append("   ただし **押しで和了率を稼ぐのは別**。押し引きの閾値だけを下げると")
+    lines.append("   和了率 +0.29pt に対して放銃率 +1.28pt で、順位はむしろ悪化した。")
+    lines.append("   和了率は「形の質・速度」で上げること。")
     return "\n".join(lines)
