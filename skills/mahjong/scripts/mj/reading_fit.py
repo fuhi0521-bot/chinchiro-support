@@ -33,7 +33,7 @@ def collect(games: int, seed: int):
     rows = []
     orig = pl.Player.discard
 
-    def hook(self, view):
+    def hook(self, view, forbidden=frozenset()):
         for p in view.game.players:
             if p.riichi:
                 continue
@@ -46,7 +46,7 @@ def collect(games: int, seed: int):
                     fast.shanten(p.hand, p.called) == 0,
                 )
             )
-        return orig(self, view)
+        return orig(self, view, forbidden)
 
     pl.Player.discard = hook
     try:

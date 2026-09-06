@@ -11,7 +11,7 @@ import math
 import random
 from dataclasses import dataclass
 
-from . import fast, placement, reading
+from . import fast, placement, reading, wall
 from .safety import danger
 from .tiles import DRAGONS, HONOR, NUM_TILES, YAOCHU_SET, rank_of
 
@@ -72,6 +72,12 @@ class Style:
     # 鳴いて染めに向かう最低枚数（その色＋字牌）。大きいほど選択的。
     # 2000半荘の実験で 11 が最良だった（9だと雑に染めて順位が下がる）
     honitsu_min: int = 11
+    # 対子が固まったときに対々和へ向かうか。向かわないと、么九牌の対子は
+    # 「鳴いても役が無い」ので一生ポンできず、対々和がほぼ出なくなる。
+    chase_toitoi: bool = True
+    # 山読み。「見えていない枚数」ではなく「山に残っていそうな枚数」で
+    # 受け入れと待ちを数える。mj/wall.py 参照。
+    wall_read: bool = False
 
 
 def value_band(points: int) -> str:
@@ -129,6 +135,9 @@ class Player:
             han += 1
         elif me.menzen:
             han += 0
+        # 対々和（向かうと決めているときだけ数える）
+        if me.yaku_goal and me.yaku_goal[0] == "toitoi":
+            han += 2
         han = max(1, han)
         table = {1: 1300, 2: 2600, 3: 5200, 4: 7700, 5: 8000, 6: 12000, 7: 12000}
         base = table.get(han, 16000 if han < 11 else 24000)
@@ -374,6 +383,12 @@ class Player:
             t0 = next(x for x in range(NUM_TILES) if hand[x])
             options = [(t0, fast.shanten(hand, me.called))]
         best_s = min(s for _, s in options)
+        # 山読み。打牌1回につき1度だけ計算して使い回す
+        if self.style.wall_read:
+            self._wall = wall.wall_counts(view, seen_all)
+            self._wall_flat = wall.flat_fraction(view, seen_all)
+        else:
+            self._wall = None
         # 門前の染め手判定はループの外で1回だけやる
         chase_suit = None
         if self.style.chase_honitsu and not me.open_melds:
@@ -397,6 +412,8 @@ class Player:
         scored = []
         for width, kinds, t, acc in widths:
             score = width * 1.0 + kinds * 0.5
+            if self._wall is not None:
+                score += self._wall_bonus(acc, width)
             if self.style.shape_aware:
                 hand[t] -= 1
                 score += self._shape_bonus(
@@ -428,6 +445,8 @@ class Player:
                     score += 14
                 elif goal[0] == "honitsu" and t < HONOR and t // 9 != goal[1]:
                     score += 14
+                elif goal[0] == "toitoi" and me.hand[t] == 1:
+                    score += 12   # 対子・刻子を壊さない。1枚だけの牌から切る
             # 危険度
             if threats:
                 risk = self._risk_of(view, t, threats, seen_all)
@@ -446,6 +465,25 @@ class Player:
         return tile, declare
 
     # ---------------------------------------------------- 形の質を見る
+
+    WALL_GAIN = 3.0  # 「山に残っていそうな枚数」の差1枚を、受け入れ何枚分と見るか
+    _wall = None
+    _wall_flat = 0.0
+
+    def _wall_bonus(self, acc, width) -> float:
+        """受け入れ牌が本当に山に残っているかで、受け入れ枚数を割り引く。
+
+        見えていない枚数（＝受け入れ計算の枚数）と、山読みが出す
+        「山に残っている期待枚数」の差を取る。差がプラスなら
+        「数字より出やすい待ち」、マイナスなら「数字ほど出ない待ち」。
+        """
+        if not width:
+            return 0.0
+        w = self._wall
+        live = sum(w[t] for t, _ in acc)
+        # 均等割りしたときの期待値と比べる（枚数そのものではなく「ずれ」を見る）
+        flat = width * self._wall_flat
+        return (live - flat) * self.WALL_GAIN
 
     LOOKAHEAD_CANDIDATES = 4  # 2段目を調べる打牌候補の数
     LOOKAHEAD_ACCEPTS = 6     # 1候補あたり調べる受け入れ牌の数
@@ -466,6 +504,9 @@ class Player:
             # --- 待ち取り ---
             width = sum(n for _, n in acc)
             bonus += width * 2.0  # テンパイの待ちは1シャンテンの受け入れより重い
+            if self._wall is not None:
+                # 待ちは「山にあるか」がそのまま和了率になる。受け入れより重く見る
+                bonus += self._wall_bonus(acc, width) * 1.5
             # 平和が付きそうか（門前・刻子なし・雀頭が役牌でない・待ちが広い）
             if me.menzen and width >= 6:
                 has_triplet = any(hand[x] >= 3 for x in range(NUM_TILES))
@@ -726,6 +767,18 @@ class Player:
         for t in list(DRAGONS) + [view.seat_wind, view.round_wind]:
             if me.hand[t] >= 3 or any(m.tile == t and m.kind != "chi" for m in me.melds):
                 return ("yakuhai",)
+        # 対々和に向かうと決めた後は、チーで壊さない。ポンは伸ばす手なので許す
+        if me.yaku_goal and me.yaku_goal[0] == "toitoi":
+            return None if kind == "chi" else ("toitoi",)
+        # 対々和 — 鳴いた時点で「刻子＋対子」が5ブロック見えているなら向かえる。
+        # 么九牌の対子は役牌でもタンヤオでもないので、この道が無いと一生ポンできない。
+        if self.style.chase_toitoi and kind in ("pon", "minkan"):
+            if not any(m.kind == "chi" for m in me.melds):
+                sets = sum(1 for m in me.melds if m.kind != "chi") + 1
+                pairs = sum(1 for t in range(NUM_TILES)
+                            if t != tile and me.hand[t] >= 2)
+                if sets + pairs >= 5:
+                    return ("toitoi",)
         # 断幺九
         tiles = [t for t in range(NUM_TILES) if me.hand[t]]
         called_tiles = [t for m in me.melds for t in m.tiles]
@@ -989,31 +1042,38 @@ def make_shape_lab() -> list:
 def make_kaname_lab() -> list:
     """かなめの改良案を、現行版と直接ぶつけて確かめる。
 
-    自己診断（mj.py match --review）が出した指摘を1つずつ試す:
-      - 押しが足りないのでは → push を 0.30 → 0.18
-      - 副露率44%は実戦(32.6%)より多すぎる → 鳴きを絞る
-      - 立直率が高く打点が伸びていない → 打点重視に寄せる
+    10000半荘の結果、かなめは和了率も放銃率もゆうだいに勝っているのに
+    平均順位で負けた（2.434 vs 2.407）。計測できた差は3つだけ:
+
+      - 平均和了打点 -187点（6179 vs 6366） → value_weight 1.2 → 1.4
+      - 立直率 -1.7pt（21.66% vs 23.39%） → damaten_value 8000 → 12000
+      - 押しの閾値が緩い（0.30 vs 0.24） → push 0.30 → 0.24
+
+    どれが効いたのかを分けるため、**一度に1つだけ**動かす。
+    以前の「かなめ打点」は3つ同時に動かしていて、どれが原因か分からなかった。
     """
     base = dict(
         awareness="allast",
         allast_conditions=True,
         low_aggression=0.25,
         top_caution=0.0,
-        damaten_value=8000,
         riichi_bad_wait_cheap=True,
-        value_weight=1.2,
         last_place_desperation=0.18,
         reading="tedashi",
         river_read=True,
         honitsu_min=11,
         safety_weight=0.5,
+        call_min_value=1500,
+        call_max_shanten=3,
+        push=0.30,
+        value_weight=1.2,
+        damaten_value=8000,
     )
     return [
-        Player("かなめ現行", Style(**base, push=0.30, call_min_value=1500, call_max_shanten=3)),
-        Player("かなめ押し強", Style(**{**base, "push": 0.18}, call_min_value=1500, call_max_shanten=3)),
-        Player("かなめ鳴き絞", Style(**base, push=0.30, call_min_value=3000, call_max_shanten=2)),
-        Player("かなめ打点", Style(**{**base, "value_weight": 1.6, "damaten_value": 6000},
-                                push=0.30, call_min_value=2600, call_max_shanten=3)),
+        Player("かなめ現行", Style(**base)),
+        Player("かなめ打点", Style(**{**base, "value_weight": 1.4})),
+        Player("かなめ押し", Style(**{**base, "push": 0.24})),
+        Player("かなめ即リー", Style(**{**base, "damaten_value": 12000})),
     ]
 
 
