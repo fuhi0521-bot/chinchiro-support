@@ -408,9 +408,13 @@ def test_rules_audit():
             violations.append("チーが上家以外から")
         if self.players[seat].riichi:
             violations.append("リーチ後に鳴いた")
-        r = orig_call(self, seat, choice, tile, from_seat)
         p = self.players[seat]
-        if p.river and p.river[-1] == tile:
+        before = len(p.river)
+        r = orig_call(self, seat, choice, tile, from_seat)
+        # この呼び出しで実際に増えた打牌だけを見る。
+        # 続けて他家に鳴かれると河から牌が戻り、river[-1] が古い打牌を指すため
+        # 単純に river[-1] を見ると誤検出する
+        if len(p.river) == before + 1 and p.river[-1] == tile:
             violations.append("現物喰い替え")
         return r
 

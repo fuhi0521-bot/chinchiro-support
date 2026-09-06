@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from .game import Game
 from .players import (
     make_awareness_lab,
+    make_best,
     make_fifth,
     make_players,
     make_reading_lab,
@@ -220,6 +221,9 @@ def build_lineup(lineup: str = "named", awareness: str = "none"):
     if lineup == "five":
         # 麻雀は4人でしか打てないので、5人だと毎半荘1人が抜け番になる
         return make_players(awareness) + [make_fifth()]
+    if lineup == "six":
+        # 6人だと毎半荘2人が抜け番。6半荘で全員が各席1回ずつ座る
+        return make_players(awareness) + [make_fifth(), make_best()]
     return make_players(awareness)
 
 

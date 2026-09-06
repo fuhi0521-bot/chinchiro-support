@@ -769,6 +769,47 @@ def make_honitsu_lab() -> list:
     ]
 
 
+def make_best() -> "Player":
+    """「かなめ」— 実験で効くと確かめられたものだけを組み合わせた打ち手。
+
+    設計の根拠は、これまでの実験で分かった1つの数字にある。
+
+      この環境では 平均和了 約6,300点 / 平均放銃 約5,200点。
+      つまり **和了率1ptは放銃率1.2ptに相当する**。
+      守備的な変更は、失う和了率の1.2倍以上を放銃率で取り返さないと損。
+
+    さとるはこれを外した。放銃率を0.89pt下げたが和了率を2.55pt落とし、
+    差し引きで大きく負けた（5人打ち2500半荘）。
+
+    だから かなめ は:
+      - 読みは入れる（情報はタダ）。ただし **降りるかどうかの判断にだけ効かせる**
+      - 打牌そのものは効率優先（safety_weight を低く保つ）。
+        危険牌を避けて受け入れを削ると、和了率の損が放銃率の得を上回る
+      - 押し引きの閾値は低め。読みが正確なぶん、押せると判断したら押す
+      - 鳴きは較正済みの水準。オーラスは条件計算する
+    """
+    return Player(
+        "かなめ",
+        Style(
+            awareness="allast",
+            allast_conditions=True,
+            low_aggression=0.25,
+            top_caution=0.0,
+            push=0.30,
+            call_min_value=1500,
+            call_max_shanten=3,
+            damaten_value=8000,
+            riichi_bad_wait_cheap=True,
+            safety_weight=0.5,
+            value_weight=1.2,
+            last_place_desperation=0.18,
+            reading="tedashi",
+            river_read=True,
+            honitsu_min=11,
+        ),
+    )
+
+
 def make_fifth() -> "Player":
     """5人目「さとる」— 河を読んで危険牌を避け、根拠のある安全牌なら無筋でも切る。
 
@@ -807,22 +848,32 @@ def make_fifth() -> "Player":
     )
 
 
-def make_players(awareness: str = "none", **knobs) -> list:
+def make_players(awareness: str = "none", think: bool = True, **knobs) -> list:
     """4人の雀士。awareness を指定すると全員に同じ状況判断を載せる。
 
     鳴きの基準は実戦の統計に合わせて較正済み。性格の差は
     押し引きの閾値・打点の追い方・守備の重み・リーチ方針で表してある。
+
+    think=True（既定）で、4人とも相手の手を読むようになる。
+      - 手出し／ツモ切りから相手のテンパイ確率を読む
+      - 河から当たり牌を推定する（手出しの早切りの周辺は無筋でも安全）
+    読みが良くなると本物の脅威が多く見えるぶん降りがちになるので、
+    押し引きの閾値を一律 0.08 下げて相殺する（実験で測った補正量）。
+    性格の差（閾値の順序）はそのまま保たれる。
     """
     extra = dict(knobs)
     if awareness != "none" and not knobs:
-        extra = dict(allast_conditions=True, low_aggression=0.25, top_caution=0.0)
+        extra.update(allast_conditions=True, low_aggression=0.25, top_caution=0.0)
+    if think:
+        extra.setdefault("reading", "tedashi")
+        extra.setdefault("river_read", True)
     return [
         Player(
             "ゆうだい",
             Style(
                 awareness=awareness,
                 **extra,
-                push=0.32,
+                push=0.24 if think else 0.32,
                 call_min_value=2000,
                 call_max_shanten=3,
                 damaten_value=12000,
@@ -837,7 +888,7 @@ def make_players(awareness: str = "none", **knobs) -> list:
             Style(
                 awareness=awareness,
                 **extra,
-                push=0.50,
+                push=0.42 if think else 0.50,
                 call_min_value=2000,
                 call_max_shanten=3,
                 damaten_value=8000,
@@ -852,7 +903,7 @@ def make_players(awareness: str = "none", **knobs) -> list:
             Style(
                 awareness=awareness,
                 **extra,
-                push=0.45,
+                push=0.37 if think else 0.45,
                 call_min_value=1000,
                 call_max_shanten=3,
                 damaten_value=8000,
@@ -867,7 +918,7 @@ def make_players(awareness: str = "none", **knobs) -> list:
             Style(
                 awareness=awareness,
                 **extra,
-                push=0.64,
+                push=0.56 if think else 0.64,
                 call_min_value=3900,
                 call_max_shanten=2,
                 damaten_value=5200,

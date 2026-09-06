@@ -189,9 +189,23 @@ GENBUTSU_RISK = 0.0
 SUJI_FACTOR = 0.50   # 両側が切れている
 HALF_SUJI_FACTOR = 0.86
 
-# 早切り（1〜6巡目の打牌）からの距離。近いほど安全
-#   実測: 1離れ 7.21% / 2離れ 9.25% / 近くに無い 11.73%
-EARLY_FACTOR = {1: 0.61, 2: 0.79}
+# 早切り（1〜6巡目の【手出し】）からの距離。近いほど安全。
+#
+# なぜ効くのか: 「河にその牌がある」からではなく「手牌から選んで捨てた」から。
+# 序盤に手から3mを切るのは、2m4m や 4m5m といったブロックを持っていない証拠になる。
+# 持っていれば切らない。だからその周辺で待つ形が成立しにくい。弱い現物のようなもの。
+#
+# 実測で裏付けた（テンパイしている相手・8巡目以降・無スジのみ）:
+#   手出しの早切りが1離れ    → 当たり牌率 6.24%
+#   手出しの早切りが2離れ    → 7.35%
+#   手出しの早切りが近くに無い → 11.07%
+#   （ツモ切りの早切りは 8.81% / 6.75% / 9.92% でほぼ効かない。
+#     引いた牌をそのまま捨てただけなので、手の中身の情報にならないため）
+#
+# メカニズムの直接確認:
+#   手出しの早切りが隣にある  → 相手がその周辺にブロックを持っている率 51.6%
+#   早切りが近くに無い       → 77.2%
+EARLY_FACTOR = {1: 0.56, 2: 0.66}
 
 EARLY_TURNS = 6  # 「早切り」とみなす巡目
 
@@ -235,11 +249,13 @@ def wait_risk(player, tile: int, seen=None) -> float:
     elif half:
         risk *= HALF_SUJI_FACTOR
 
-    # 早切りの周辺は、無スジでも安全寄り
+    # 早切りの周辺は、無スジでも安全寄り。ただし【手出し】に限る
     dist = 9
-    for i, d in enumerate(player.river):
-        if i >= EARLY_TURNS or d >= HONOR or d // 9 != tile // 9:
+    for i, d in enumerate(player.river[:EARLY_TURNS]):
+        if d >= HONOR or d // 9 != tile // 9:
             continue
+        if i >= len(player.tedashi) or not player.tedashi[i]:
+            continue  # ツモ切りは手の中身の情報にならない
         gap = abs((d % 9) - (tile % 9))
         if 1 <= gap <= 2:
             dist = min(dist, gap)
