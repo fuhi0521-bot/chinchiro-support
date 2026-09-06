@@ -87,9 +87,9 @@ python3 tests/test_engine.py
 python3 skills/mahjong/scripts/mj.py match --hanchan 1000 -j 4
 ```
 
-1000半荘の結果は `results/match-1000.txt`。
-「点数状況で打ち回しを変えると順位は上がるのか」を測った実験は
-`results/experiment-awareness.md`。
+- `results/match-final.md` — 2000半荘の対戦結果（較正済み・オーラス条件あり）
+- `results/match-1000.txt` — 最初の1000半荘（較正前）
+- `results/experiment-awareness.md` — 「点数状況で打ち回しを変えると順位は上がるか」の検証（計9000半荘）
 
 ## 中身
 
