@@ -375,11 +375,14 @@ def test_rules_audit():
     ここで見ているもの:
       牌の総数136 / 手牌枚数 / 点棒の保存 / 王牌14枚とドラ表示牌の枚数
       チーは上家のみ / リーチ後に鳴かない / リーチの成立条件
-      現物喰い替えの禁止 / 役なし和了がない / 流局時の収支が0
+      現物喰い替えの禁止 / 役なし和了がない
+      流局時のノーテン罰符の金額（テンパイ人数別）と親の連荘条件
+      途中流局には罰符が無いこと
       赤ドラ3枚 / 河と手出しフラグの整合
     """
     import random as _r
 
+    from mj import fast as _fast
     from mj.game import DORA_POS, RINSHAN_POS, Game
     from mj.players import make_players
 
@@ -439,7 +442,23 @@ def test_rules_audit():
             assert before == sum(after_scores) + new_sticks * 1000, (before, after_scores)
 
             if res.kind == "draw":
-                assert sum(res.deltas) == 0
+                # 合計が0（保存則）だけでなく、罰符の金額そのものを検証する。
+                # 合計0は「全員±0」でも通ってしまうので、それだけでは足りない。
+                tenpai = [
+                    i for i in range(4)
+                    if _fast.shanten(g.players[i].hand, g.players[i].called) == 0
+                ]
+                assert set(res.tenpai) == set(tenpai), (res.tenpai, tenpai)
+                gain, pay = {0: (0, 0), 1: (3000, 1000), 2: (1500, 1500),
+                             3: (1000, 3000), 4: (0, 0)}[len(tenpai)]
+                for i in range(4):
+                    want = 0 if len(tenpai) in (0, 4) else (gain if i in tenpai else -pay)
+                    assert res.deltas[i] == want, (len(tenpai), i, res.deltas[i], want)
+                # 親はテンパイのときだけ連荘する
+                assert res.dealer_repeat == (g.dealer in tenpai)
+            elif res.kind == "abort":
+                # 途中流局に罰符は無い
+                assert res.deltas == [0, 0, 0, 0]
 
             for p in g.players:
                 assert len(p.river) == len(p.tedashi)
