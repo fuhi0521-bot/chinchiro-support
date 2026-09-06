@@ -540,7 +540,8 @@ class Game:
             r = self.score_hand(p, tile, tsumo=False, extra=tile, chankan=chankan)
             if r is None:
                 continue
-            got = r.payment.ron + self.honba * 300
+            # payment.ron には本場（1本300点）がすでに入っている。ここで足すと二重になる
+            got = r.payment.ron
             deltas[w] += got
             deltas[loser] -= got
             if not sticks_taken:

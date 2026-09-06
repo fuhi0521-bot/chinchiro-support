@@ -36,6 +36,15 @@ class Stats:
     ranks: list = field(default_factory=lambda: [0, 0, 0, 0])
     total_score: int = 0
     hanchan: int = 0
+    # オーラスに入った時点の着順 → 最終着順 の変化。打ち回しの効果はここに出る
+    allast_seen: int = 0
+    allast_up: int = 0
+    allast_same: int = 0
+    allast_down: int = 0
+    allast_entered_last: int = 0  # オーラス開始時にラス目だった回数
+    allast_escaped_last: int = 0  # そこからラスを脱出した回数
+    allast_entered_top: int = 0
+    allast_kept_top: int = 0
 
     def merge(self, o: "Stats") -> None:
         self.hands += o.hands
@@ -52,6 +61,12 @@ class Stats:
         self.hanchan += o.hanchan
         for i in range(4):
             self.ranks[i] += o.ranks[i]
+        for k in (
+            "allast_seen", "allast_up", "allast_same", "allast_down",
+            "allast_entered_last", "allast_escaped_last",
+            "allast_entered_top", "allast_kept_top",
+        ):
+            setattr(self, k, getattr(self, k) + getattr(o, k))
 
 
 def play_hanchan(ai_players, rng, start_offset=0):
@@ -65,12 +80,15 @@ def play_hanchan(ai_players, rng, start_offset=0):
     honba = 0
     sticks = 0
     guard = 0
+    allast_entry = None  # オーラスに入った時点の点数
 
     while True:
         guard += 1
         if guard > 60:
             break
         dealer = kyoku
+        if allast_entry is None and round_wind_idx >= 1 and kyoku == 3:
+            allast_entry = list(scores)
         g = Game(order, scores, 27 + round_wind_idx, dealer, honba, sticks, rng)
         res = g.play()
 
@@ -143,6 +161,29 @@ def play_hanchan(ai_players, rng, start_offset=0):
         st.ranks[rank] += 1
         st.total_score += scores[seat]
         st.hanchan += 1
+
+    # オーラスでの着順の動き
+    if allast_entry is not None:
+        entry_rank = {s: i for i, s in enumerate(sorted(range(4), key=lambda i: (-allast_entry[i], i)))}
+        for seat in range(4):
+            st = stats[order[seat].name]
+            before = entry_rank[seat]
+            after = ranking.index(seat)
+            st.allast_seen += 1
+            if after < before:
+                st.allast_up += 1
+            elif after > before:
+                st.allast_down += 1
+            else:
+                st.allast_same += 1
+            if before == 3:
+                st.allast_entered_last += 1
+                if after < 3:
+                    st.allast_escaped_last += 1
+            if before == 0:
+                st.allast_entered_top += 1
+                if after == 0:
+                    st.allast_kept_top += 1
     return stats
 
 
@@ -213,6 +254,20 @@ def report(total, n) -> str:
             f"{st.win_points / max(1, st.wins):>9.0f} {st.deal_points / max(1, st.deals):>9.0f} "
             f"{st.tsumo / max(1, st.wins) * 100:>6.1f}% "
             f"{st.tenpai_at_draw / max(1, st.draws) * 100:>8.1f}%"
+        )
+    lines.append("")
+    lines.append("")
+    lines.append(f"{'雀士':<{w}} {'オーラス':>8} {'着順UP':>8} {'維持':>7} {'DOWN':>7} {'ラス脱出':>9} {'トップ死守':>11}")
+    lines.append("-" * (w + 55))
+    for _, name, st, _ in rows:
+        a = st.allast_seen or 1
+        el = st.allast_entered_last or 1
+        et = st.allast_entered_top or 1
+        lines.append(
+            f"{name:<{w}} {st.allast_seen:>8} {st.allast_up / a * 100:>7.1f}% "
+            f"{st.allast_same / a * 100:>6.1f}% {st.allast_down / a * 100:>6.1f}% "
+            f"{st.allast_escaped_last / el * 100:>8.1f}% ({st.allast_entered_last}) "
+            f"{st.allast_kept_top / et * 100:>7.1f}% ({st.allast_entered_top})"
         )
     lines.append("")
     lines.append(f"総局数: {sum(total[n2].hands for n2 in names) // 4} 局 / 1半荘あたり {sum(total[n2].hands for n2 in names) / 4 / n:.2f} 局")

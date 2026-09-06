@@ -16,7 +16,7 @@
 | 鳴く？ | 鳴いた後の手がどうなるかで判断 |
 | この手いくら？ | 役・符の内訳・点数（高点法で最高の解釈） |
 | テンパイしてる？ | 副露数×巡目からの見立てと危険牌の序列 |
-| オーラスの条件は？ | ロン／ツモ／直撃に分けた必要打点 |
+| オーラスの条件は？ | ロン／ツモ／直撃／流局テンパイに分けた必要打点（`mj.py oorasu`） |
 | 今日の対局を振り返って | 悪手を3分類して「今日の1点」 |
 | 〜って何？ | 役・用語・ルールの照会 |
 
@@ -53,6 +53,7 @@ python3 $S score   234m567m234p678p11s --win 2m --tsumo --riichi --fu-detail
 python3 $S danger  --river "123m9p東南白" --tiles "456789m5p3s発"
 python3 $S points  --han 3 --fu 40
 python3 $S noten   --tenpai 2
+python3 $S oorasu  --scores 24000,25000,25500,25500 --me 0 --dealer 3   # オーラスの着順条件
 python3 $S match   --hanchan 1000 -j 4         # 4人のAI雀士で対戦させる
 ```
 
@@ -87,6 +88,8 @@ python3 skills/mahjong/scripts/mj.py match --hanchan 1000 -j 4
 ```
 
 1000半荘の結果は `results/match-1000.txt`。
+「点数状況で打ち回しを変えると順位は上がるのか」を測った実験は
+`results/experiment-awareness.md`。
 
 ## 中身
 
@@ -105,7 +108,7 @@ skills/mahjong/
     edge-cases.md             フリテン・槓・流局・ダブロン・包など迷いやすい細部
     calls.md                  鳴き判断・カン・喰い替え・後付け
     riichi.md                 リーチ/ダマ/追っかけ・宣言牌の選び方
-    placement.md              着順戦術・オーラス条件計算・ラス回避
+    placement.md              着順戦術・オーラス条件計算・点数状況別の打ち回し
     majsoul.md                雀魂のルール設定・段位・UI由来の注意点
     glossary.md               用語集
     training.md               上達ロードマップ・牌譜検討・Mortal/NAGA/MAKA

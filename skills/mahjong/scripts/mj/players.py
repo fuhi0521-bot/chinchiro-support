@@ -584,10 +584,12 @@ def make_awareness_lab() -> list:
 
     2〜4 をそれぞれ「素直」と比べれば、どの打ち回しが効いているかが分かる。
     """
+    # 鳴きの基準は実戦の統計に合わせて較正してある
+    # （副露率38% / 平均和了6338点 / 平均翻3.31 / 飛び14%。実戦は 30-35% / 6000-6500 / 3.3-3.5 / 5-8%）
     base = dict(
         push=0.50,
-        call_min_value=3900,
-        call_max_shanten=1,
+        call_min_value=1000,
+        call_max_shanten=3,
         damaten_value=8000,
         riichi_bad_wait_cheap=True,
         safety_weight=1.0,
@@ -604,7 +606,11 @@ def make_awareness_lab() -> list:
 
 
 def make_players(awareness: str = "none", **knobs) -> list:
-    """4人の雀士。awareness を指定すると全員に同じ状況判断を載せる。"""
+    """4人の雀士。awareness を指定すると全員に同じ状況判断を載せる。
+
+    鳴きの基準は実戦の統計に合わせて較正済み。性格の差は
+    押し引きの閾値・打点の追い方・守備の重み・リーチ方針で表してある。
+    """
     extra = dict(knobs)
     if awareness != "none" and not knobs:
         extra = dict(allast_conditions=True, low_aggression=0.25, top_caution=0.0)
@@ -615,8 +621,8 @@ def make_players(awareness: str = "none", **knobs) -> list:
                 awareness=awareness,
                 **extra,
                 push=0.32,
-                call_min_value=3900,
-                call_max_shanten=2,
+                call_min_value=2000,
+                call_max_shanten=3,
                 damaten_value=12000,
                 riichi_bad_wait_cheap=True,
                 safety_weight=0.5,
@@ -630,8 +636,8 @@ def make_players(awareness: str = "none", **knobs) -> list:
                 awareness=awareness,
                 **extra,
                 push=0.50,
-                call_min_value=3900,
-                call_max_shanten=1,
+                call_min_value=2000,
+                call_max_shanten=3,
                 damaten_value=8000,
                 riichi_bad_wait_cheap=True,
                 safety_weight=1.0,
@@ -660,8 +666,8 @@ def make_players(awareness: str = "none", **knobs) -> list:
                 awareness=awareness,
                 **extra,
                 push=0.64,
-                call_min_value=5200,
-                call_max_shanten=1,
+                call_min_value=3900,
+                call_max_shanten=2,
                 damaten_value=5200,
                 riichi_bad_wait_cheap=False,
                 safety_weight=1.6,
