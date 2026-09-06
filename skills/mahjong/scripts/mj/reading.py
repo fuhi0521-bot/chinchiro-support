@@ -242,16 +242,37 @@ EARLY_FACTOR = {1: 0.56, 2: 0.66}
 
 EARLY_TURNS = 6  # 「早切り」とみなす巡目
 
+# その牌が **自分の手牌と本人の河を除いて** 何枚見えているか。
+# 実測（400局・82418標本・テンパイしている相手のみ）:
+#   数牌  0枚見え 10.04% / 1枚 6.09% / 2枚 4.87% / 3枚 2.30%
+#   字牌  0枚見え  1.19% / 1枚 0.17% / 2枚 0.00% / 3枚 0.00%
+#
+# 理由は2つある。
+#   1. シャンポン・単騎はその牌そのものを抱えている必要がある。
+#      3枚見えていればシャンポンは不可能
+#   2. **他家の河に切れている牌は、相手がテンパイしていたなら通っている**。
+#      通っていれば相手はフリテンで、その牌では和了れない
+#
+# 2つ目のほうが効きが大きい。リーチ後に通った牌は `PlayerState.passed` で
+# 別に処理しているので、ここに残るのは「ダマの相手」「リーチ前に通った牌」の分。
+#
+# 係数は平均が変わらないように正規化してある（押し引きの閾値を動かさないため）。
+SEEN_FACTOR = (1.18, 0.72, 0.58, 0.27)
+HONOR_SEEN_FACTOR = (1.00, 0.20, 0.10, 0.10)
+
 
 def _rank_class(t: int) -> int:
     r = t % 9 + 1
     return min(r, 10 - r)
 
 
-def wait_risk(player, tile: int, seen=None) -> float:
+def wait_risk(player, tile: int, seen=None, mine=None) -> float:
     """その牌が相手の当たり牌である確率(%)を、河から見積る。
 
     放銃率ではない。放銃率 ≈ wait_risk × テンパイ確率。
+
+    seen は自分の手牌も含めた既知の枚数、mine は自分の手牌の枚数。
+    mine を渡すと「場に何枚切れているか」を正しく数えられる。
     """
     from .tiles import HONOR
 
@@ -259,10 +280,17 @@ def wait_risk(player, tile: int, seen=None) -> float:
         # 本人が切った牌（現物）と、リーチ後に他家が切って通った牌。
         # どちらも当たらない。後者は見落とされやすいが、局が進むほど枚数が増える
         return GENBUTSU_RISK
+
+    # 場に何枚切れているか（自分の手牌と、本人の河は除く）
+    gone = 0
+    if seen is not None:
+        gone = seen[tile] - player.river_counts[tile]
+        if mine is not None:
+            gone -= mine[tile]
+        gone = min(3, max(0, gone))
+
     if tile >= HONOR:
-        # 字牌は切れている枚数で下がる
-        gone = player.river_counts[tile] + (seen[tile] if seen else 0)
-        return HONOR_RISK * (0.5 if gone >= 1 else 1.0)
+        return HONOR_RISK * HONOR_SEEN_FACTOR[gone]
 
     r = tile % 9 + 1
     base_idx = tile - (r - 1)
@@ -295,4 +323,5 @@ def wait_risk(player, tile: int, seen=None) -> float:
         if 1 <= gap <= 2:
             dist = min(dist, gap)
     risk *= EARLY_FACTOR.get(dist, 1.0)
+    risk *= SEEN_FACTOR[gone]
     return risk

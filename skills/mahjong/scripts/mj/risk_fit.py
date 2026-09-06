@@ -39,6 +39,20 @@ def winning_tiles(p) -> set:
     return out
 
 
+# 「枚数を見ない」旧モデル。同じ局面で新旧を比べるために使う
+OLD_SEEN = (1.0, 1.0, 1.0, 1.0)
+OLD_HONOR_SEEN = (1.0, 0.5, 0.5, 0.5)
+
+
+def _old_risk(p, t, seen, mine):
+    sf, hf = reading.SEEN_FACTOR, reading.HONOR_SEEN_FACTOR
+    reading.SEEN_FACTOR, reading.HONOR_SEEN_FACTOR = OLD_SEEN, OLD_HONOR_SEEN
+    try:
+        return reading.wait_risk(p, t, seen, mine)
+    finally:
+        reading.SEEN_FACTOR, reading.HONOR_SEEN_FACTOR = sf, hf
+
+
 def collect(games: int, seed: int, min_turn: int = 6):
     rows = []
     orig = pl.Player.discard
@@ -56,12 +70,13 @@ def collect(games: int, seed: int, min_turn: int = 6):
                 for t in range(NUM_TILES):
                     if not me.hand[t]:
                         continue
-                    risk = reading.wait_risk(p, t, seen)
+                    risk = reading.wait_risk(p, t, seen, me.hand)
                     # その相手の河にある牌（現物）は判断が自明なので外す
                     if p.river_counts[t]:
                         continue
                     elsewhere = seen[t] - me.hand[t] - p.river_counts[t]
-                    rows.append((risk, t in win, min(3, max(0, elsewhere)), t))
+                    rows.append((risk, t in win, min(3, max(0, elsewhere)), t,
+                                 _old_risk(p, t, seen, me.hand)))
         return orig(self, view, forbidden)
 
     pl.Player.discard = hook
@@ -105,7 +120,8 @@ def main():
     rows = collect(a.games, a.seed)
     hit = sum(1 for r in rows if r[1])
     print(f"\n標本 {len(rows)} 件 / 当たり牌 {hit} 件 ({hit / len(rows) * 100:.2f}%)")
-    print(f"AUC {auc(rows):.4f}\n")
+    old = [(r[4], r[1]) for r in rows]
+    print(f"AUC  枚数を見る {auc(rows):.4f}  /  見ない(旧) {auc(old):.4f}\n")
 
     print("  予測の帯ごとの実測")
     print(f"  {'予測(%)':>10} {'標本':>8} {'実測(%)':>9}")

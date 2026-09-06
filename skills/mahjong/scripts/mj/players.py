@@ -330,7 +330,7 @@ class Player:
             else:
                 weight = 1.5 if p.seat == view.game.dealer else 1.0
             if self.style.river_read:
-                r = reading.wait_risk(p, tile, seen)
+                r = reading.wait_risk(p, tile, seen, view.me.hand)
             elif tile in p.passed:
                 # リーチ後に通った牌。現物と同じ
                 r = 0.3
