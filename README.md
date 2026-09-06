@@ -53,6 +53,7 @@ python3 $S score   234m567m234p678p11s --win 2m --tsumo --riichi --fu-detail
 python3 $S danger  --river "123m9p東南白" --tiles "456789m5p3s発"
 python3 $S points  --han 3 --fu 40
 python3 $S noten   --tenpai 2
+python3 $S match   --hanchan 1000 -j 4         # 4人のAI雀士で対戦させる
 ```
 
 牌の表記は `1m〜9m`（萬子）`1p〜9p`（筒子）`1s〜9s`（索子）`東南西北白發中`。
@@ -89,6 +90,9 @@ skills/mahjong/
     efficiency.md             牌効率・5ブロック・ターツ序列・見落としやすい形
     push-fold.md              押し引きの基準表・回し打ち・ベタオリ
     reading.md                河読み・副露読み・ダマテン察知・危険度
+    wait-selection.md         待ち取り・山読み・残り枚数の数え方
+    probability.md            配牌分布・有効牌を引ける確率・実戦の統計値
+    edge-cases.md             フリテン・槓・流局・ダブロン・包など迷いやすい細部
     calls.md                  鳴き判断・カン・喰い替え・後付け
     riichi.md                 リーチ/ダマ/追っかけ・宣言牌の選び方
     placement.md              着順戦術・オーラス条件計算・ラス回避

@@ -136,6 +136,82 @@ def test_random_consistency():
         assert (shanten(counts) == -1) == agari
 
 
+
+
+# --- 高速シャンテンと対局エンジンの検証 -------------------------------------
+
+from mj import fast  # noqa: E402
+from mj.shanten import shanten_standard as slow_standard  # noqa: E402
+
+
+def test_fast_shanten_matches_reference():
+    """高速版が全探索版と完全に一致すること。"""
+    random.seed(3)
+    for _ in range(3000):
+        wall = [j for j in range(34) for _ in range(4)]
+        random.shuffle(wall)
+        n = random.choice([13, 14, 10, 11, 7, 8])
+        called = (13 - n) // 3 if n in (10, 11, 7, 8) else 0
+        counts = [0] * 34
+        for t in wall[:n]:
+            counts[t] += 1
+        assert fast.shanten_standard(counts, called) == slow_standard(counts, called)
+
+
+def test_ukeire_filter_is_exact():
+    """受け入れの絞り込みが、全34種を調べた結果と一致すること。"""
+    random.seed(11)
+    for _ in range(800):
+        wall = [i for i in range(34) for _ in range(4)]
+        random.shuffle(wall)
+        counts = [0] * 34
+        for t in wall[:13]:
+            counts[t] += 1
+        cur = fast.shanten(counts)
+        full = set()
+        for t in range(34):
+            if counts[t] >= 4:
+                continue
+            counts[t] += 1
+            if fast.shanten(counts) < cur:
+                full.add(t)
+            counts[t] -= 1
+        assert full == {t for t, _ in fast.ukeire(counts)[1]}
+
+
+def test_game_runs_and_conserves_points():
+    """1半荘を通して、点棒の合計が保たれること（供託を含む）。"""
+    import random as _r
+
+    from mj.simulate import play_hanchan
+    from mj.players import make_players
+
+    ai = make_players()
+    rng = _r.Random(5)
+    for i in range(6):
+        stats = play_hanchan(ai, rng, start_offset=i)
+        total_hanchan = sum(s.hanchan for s in stats.values())
+        assert total_hanchan == 4
+        assert sum(s.hands for s in stats.values()) >= 4 * 4
+
+
+def test_no_yakuless_wins():
+    """役なしでアガれてしまわないこと。"""
+    import random as _r
+
+    from mj.game import Game
+    from mj.players import make_players
+
+    ai = make_players()
+    rng = _r.Random(9)
+    for _ in range(25):
+        g = Game(ai, [25000] * 4, 27, 0, 0, 0, rng)
+        res = g.play()
+        for seat, pts, han, fu, yaku in res.winners:
+            assert yaku, "役のない和了が発生した"
+            assert pts > 0
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

@@ -147,6 +147,14 @@ def cmd_noten(args) -> None:
         print(f"テンパイ者: +{gain}点 / ノーテン者: -{pay}点")
 
 
+def cmd_match(args) -> None:
+    from .tournament import match
+    from .simulate import report
+
+    total = match(args.hanchan, seed=args.seed, workers=args.workers)
+    print(report(total, args.hanchan))
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mj", description="麻雀の計算エンジン")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -208,6 +216,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--visible", "-V", default=None, help="場に見えている全ての牌")
     s.add_argument("--early", action="store_true", help="序盤（字牌の危険度を下げる）")
     s.set_defaults(func=cmd_danger)
+
+    s = sub.add_parser("match", help="4人のAI雀士で対戦させる")
+    s.add_argument("--hanchan", "-n", type=int, default=100)
+    s.add_argument("--seed", type=int, default=1)
+    s.add_argument("--workers", "-j", type=int, default=0, help="並列プロセス数（0で自動）")
+    s.set_defaults(func=cmd_match)
 
     s = sub.add_parser("noten", help="ノーテン罰符")
     s.add_argument("--tenpai", type=int, required=True, help="テンパイ者の人数 0-4")
