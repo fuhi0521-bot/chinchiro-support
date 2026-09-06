@@ -78,6 +78,9 @@ class Style:
     # 山読み。「見えていない枚数」ではなく「山に残っていそうな枚数」で
     # 受け入れと待ちを数える。mj/wall.py 参照。
     wall_read: bool = False
+    # 2シャンテン以遠でもブロックの質（良形か愚形か）を見るか。
+    # 受け入れ枚数だけだと、愚形3つの手と良形2つの手が同じ点になる。
+    deep_shape: bool = False
 
 
 def value_band(points: int) -> str:
@@ -543,12 +546,52 @@ class Player:
             if weight:
                 bonus += (total / weight) * 0.8  # 平均の待ち枚数
 
+        elif shanten >= 2 and self.style.deep_shape:
+            # --- 遠い手はブロックの質で決める ---
+            # 受け入れ枚数だけだと「愚形が3つある手」が広く見えてしまう。
+            # テンパイしたときに良形で待てるかは、いまの形で決まっている。
+            bonus += self._block_quality(hand) * 1.2
+
         # --- 門前の手役への寄せ ---
         if me.menzen and shanten <= 2:
             yaochu = sum(hand[x] for x in YAOCHU_SET)
             if yaochu <= 2 and tile in YAOCHU_SET:
                 bonus += 4.0 * self.style.value_weight  # タンヤオが見える
         return bonus
+
+    def _block_quality(self, hand) -> float:
+        """手の中のターツを「良形か愚形か」で点数にする。
+
+        両面（56m のような形）はテンパイしたとき8枚待ちになる。
+        嵌張・辺張・対子は4枚。同じ1ブロックでも価値が倍ちがう。
+        シャンテン数も受け入れ枚数も、この差を見ていない。
+
+        完全な分解はしない（重い）。隣接の数を数えるだけで、
+        打牌候補どうしの比較には十分な差が出る。
+        """
+        score = 0.0
+        for base in (0, 9, 18):
+            for r in range(9):
+                t = base + r
+                n = hand[t]
+                if not n:
+                    continue
+                if n >= 3:
+                    score += 2.0          # 暗刻は確定ブロック
+                elif n == 2:
+                    score += 0.8          # 対子。雀頭にも刻子にもなる
+                if r < 8 and hand[t + 1]:
+                    # 両面は 1-2 と 8-9 を除く。端は辺張にしかならない
+                    score += 2.0 if 0 < r < 7 else 0.9
+                if r < 7 and hand[t + 2]:
+                    score += 1.0          # 嵌張
+        # 字牌は対子・刻子だけがブロックになる
+        for t in range(HONOR, NUM_TILES):
+            if hand[t] >= 3:
+                score += 2.0
+            elif hand[t] == 2:
+                score += 0.8
+        return score
 
     def _want_riichi(self, view, discard) -> bool:
         me = view.me
@@ -1063,12 +1106,13 @@ def make_shape_lab() -> list:
 
 
 def make_wall_lab() -> list:
-    """新しい2つの層を 2×2 で切り分ける。土台はかなめ。
+    """新しく足した3つの層を、それぞれ単独で土台とぶつける。
 
-      - 山読み（wall_read）  … 受け入れと待ちを「山に残っていそうな枚数」で数える
-      - 対々和（chase_toitoi）… 么九牌の対子からポンして対々和に向かう
+      - 山読み（wall_read）   … 受け入れと待ちを「山に残っていそうな枚数」で数える
+      - 対々和（chase_toitoi）… 対子が固まったらポンして対々和に向かう
+      - 形深く（deep_shape）  … 2シャンテン以遠でもブロックの質（良形か愚形か）を見る
 
-    両方入れて良くなったのか、片方だけが効いたのかを1回の対戦で分ける。
+    一度に1つだけ動かす。3つ同時だと、どれが効いたのか分からない。
     """
     base = dict(
         awareness="allast",
@@ -1086,12 +1130,15 @@ def make_wall_lab() -> list:
         push=0.30,
         value_weight=1.2,
         damaten_value=8000,
+        wall_read=False,
+        chase_toitoi=False,
+        deep_shape=False,
     )
     return [
-        Player("素", Style(**base, wall_read=False, chase_toitoi=False)),
-        Player("山読み", Style(**base, wall_read=True, chase_toitoi=False)),
-        Player("対々和", Style(**base, wall_read=False, chase_toitoi=True)),
-        Player("両方", Style(**base, wall_read=True, chase_toitoi=True)),
+        Player("土台", Style(**base)),
+        Player("山読み", Style(**{**base, "wall_read": True})),
+        Player("対々和", Style(**{**base, "chase_toitoi": True})),
+        Player("形深く", Style(**{**base, "deep_shape": True})),
     ]
 
 
