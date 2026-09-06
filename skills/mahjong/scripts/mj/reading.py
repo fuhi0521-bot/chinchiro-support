@@ -255,7 +255,9 @@ def wait_risk(player, tile: int, seen=None) -> float:
     """
     from .tiles import HONOR
 
-    if player.river_counts[tile]:
+    if player.river_counts[tile] or tile in player.passed:
+        # 本人が切った牌（現物）と、リーチ後に他家が切って通った牌。
+        # どちらも当たらない。後者は見落とされやすいが、局が進むほど枚数が増える
         return GENBUTSU_RISK
     if tile >= HONOR:
         # 字牌は切れている枚数で下がる

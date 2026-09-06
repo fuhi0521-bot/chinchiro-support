@@ -64,6 +64,9 @@ class PlayerState:
     yaku_goal: tuple | None = None  # 鳴いた後に向かう役 ('tanyao',) / ('honitsu', 色) / ('yakuhai',)
     # 鳴いた直後に切った牌。読みに使う（中張牌ならテンパイが近い）
     after_call_discards: list = field(default_factory=list)
+    # リーチ宣言のあと、他家が切って通った牌。この人には二度と当たらない
+    # （見逃せば永久フリテンになるため）。現物と同じ扱いでいい
+    passed: set = field(default_factory=set)
 
     @property
     def menzen(self) -> bool:
@@ -386,6 +389,13 @@ class Game:
             return None, self.abortive("三家和")
         if ron:
             return None, self.settle_ron(ron, tile, seat)
+
+        # ここまで来たら、誰もロンしなかった＝この牌はリーチ者全員に通った。
+        # リーチ者は見逃すと永久フリテンになるので、以後この牌では和了れない。
+        for i in range(1, 4):
+            o = self.players[(seat + i) % 4]
+            if o.riichi:
+                o.passed.add(tile)
 
         # --- ポン・カン（上家優先なし、鳴きは全員から） ---
         for i in range(1, 4):

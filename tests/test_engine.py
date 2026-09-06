@@ -595,6 +595,36 @@ def test_wall_reading_beats_flat():
     assert wall.HONOR_HOLD < wall.RANK_HOLD[0] < wall.RANK_HOLD[4]
 
 
+def test_passed_after_riichi_is_safe():
+    """リーチ後に他家が切って通った牌は、そのリーチ者には二度と当たらない。
+
+    見逃せば永久フリテンになるため。実装前は「本人が切った牌」しか
+    現物として見ていなかったので、局が進むほど見落としが増えていた。
+    """
+    import random as _r
+
+    from mj import reading
+    from mj.game import Game
+    from mj.players import make_players
+
+    ai = make_players()
+    rng = _r.Random(5)
+    checked = 0
+    for k in range(60):
+        g = Game(ai, [25000] * 4, 27, k % 4, 0, 0, rng)
+        g.play()
+        for p in g.players:
+            if not p.riichi:
+                continue
+            for t in p.passed:
+                # 通った牌は現物と同じ扱いになっていること
+                assert reading.wait_risk(p, t, None) <= reading.GENBUTSU_RISK
+                # 実際にその牌で和了れないこと（見逃した時点でフリテン）
+                if p.hand[t] < 4:
+                    checked += 1
+    assert checked > 0, "リーチ後に通った牌が1枚も記録されていない"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
