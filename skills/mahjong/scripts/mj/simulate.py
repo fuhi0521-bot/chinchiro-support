@@ -75,8 +75,12 @@ class Stats:
             setattr(self, k, getattr(self, k) + getattr(o, k))
 
 
-def play_hanchan(ai_players, rng, start_offset=0):
-    """1半荘。ai_players[i] が席 i に座る。start_offset は起家をずらす量。"""
+def play_hanchan(ai_players, rng, start_offset=0, on_result=None):
+    """1半荘。ai_players[i] が席 i に座る。start_offset は起家をずらす量。
+
+    on_result(game, result, sticks_before) を渡すと、1局ごとに呼ばれる。
+    集計用のフックで、進行そのものには影響しない。
+    """
     order = [ai_players[(i + start_offset) % 4] for i in range(4)]
     scores = [25000] * 4
     stats = {p.name: Stats() for p in ai_players}
@@ -96,7 +100,10 @@ def play_hanchan(ai_players, rng, start_offset=0):
         if allast_entry is None and round_wind_idx >= 1 and kyoku == 3:
             allast_entry = list(scores)
         g = Game(order, scores, 27 + round_wind_idx, dealer, honba, sticks, rng)
+        sticks_before = sticks
         res = g.play()
+        if on_result is not None:
+            on_result(g, res, sticks_before)
 
         for i in range(4):
             st = stats[order[i].name]

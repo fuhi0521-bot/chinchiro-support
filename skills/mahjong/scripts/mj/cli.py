@@ -166,6 +166,12 @@ def cmd_oorasu(args) -> None:
           f"自分だけノーテン → {rank_after_draw(scores, me, {i for i in range(4) if i != me}) + 1}着")
 
 
+def cmd_yaku(args) -> None:
+    from .yakustats import report, run
+
+    print(report(*run(args.hanchan, seed=args.seed, workers=args.workers)))
+
+
 def cmd_match(args) -> None:
     from .tournament import match
     from .simulate import report
@@ -256,6 +262,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--awareness", default="none", choices=["none", "allast", "south", "always"],
                    help="named のとき、4人全員に適用する状況判断の範囲")
     s.set_defaults(func=cmd_match)
+
+    s = sub.add_parser("yaku", help="和了役の分布を集計する（打ち筋の診断）")
+    s.add_argument("--hanchan", "-n", type=int, default=1000)
+    s.add_argument("--seed", type=int, default=1)
+    s.add_argument("--workers", "-j", type=int, default=0)
+    s.set_defaults(func=cmd_yaku)
 
     s = sub.add_parser("noten", help="ノーテン罰符")
     s.add_argument("--tenpai", type=int, required=True, help="テンパイ者の人数 0-4")
