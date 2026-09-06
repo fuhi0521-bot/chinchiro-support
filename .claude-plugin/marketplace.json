@@ -1,0 +1,13 @@
+{
+  "name": "fuhi0521-mahjong",
+  "owner": {
+    "name": "fuhi0521"
+  },
+  "plugins": [
+    {
+      "name": "mahjong",
+      "source": "./",
+      "description": "麻雀専用のAIエージェント。実戦判断・点数計算・牌譜の振り返り。"
+    }
+  ]
+}
