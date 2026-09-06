@@ -90,6 +90,7 @@ python3 skills/mahjong/scripts/mj.py match --hanchan 1000 -j 4
 - `results/match-final.md` — 2000半荘の対戦結果（較正済み・オーラス条件あり）
 - `results/match-1000.txt` — 最初の1000半荘（較正前）
 - `results/experiment-awareness.md` — 「点数状況で打ち回しを変えると順位は上がるか」の検証（計9000半荘）
+- `results/experiment-reading.md` — 「読みは順位になるか」の検証（手出し／ツモ切り・鳴き読み）
 
 ## 中身
 
@@ -102,7 +103,7 @@ skills/mahjong/
     scoring.md                符計算・点数表・本場・供託
     efficiency.md             牌効率・5ブロック・ターツ序列・見落としやすい形
     push-fold.md              押し引きの基準表・回し打ち・ベタオリ
-    reading.md                河読み・副露読み・ダマテン察知・危険度
+    reading.md                河読み・手出し／ツモ切り・ダマテン察知・危険度
     wait-selection.md         待ち取り・山読み・残り枚数の数え方
     probability.md            配牌分布・有効牌を引ける確率・実戦の統計値
     edge-cases.md             フリテン・槓・流局・ダブロン・包など迷いやすい細部
