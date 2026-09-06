@@ -11,7 +11,7 @@ import math
 import random
 from dataclasses import dataclass
 
-from . import fast, placement
+from . import fast, placement, reading
 from .safety import danger
 from .tiles import DRAGONS, HONOR, NUM_TILES, YAOCHU_SET, rank_of
 
@@ -55,6 +55,10 @@ class Style:
     top_caution: float = 0.0  # トップ目のとき押しを引く量
     low_aggression: float = 0.0  # 下位のとき押しを足す量（ラス目に満額、3着に半分）
     allast_conditions: bool = False  # オーラスの条件計算（ダマ・見逃し・形式テンパイ）を使うか
+    # 相手のテンパイをどう読むか
+    #   heuristic = 手書きの副露数×巡目 / stats = 実測表（手出しを見ない）
+    #   tedashi   = 実測表（手出し・ツモ切り込み） / oracle = 相手の手牌が見える（上限測定用）
+    reading: str = "heuristic"
 
 
 def value_band(points: int) -> str:
@@ -130,6 +134,29 @@ class Player:
             return view.is_all_last
         return False
 
+    # ------------------------------------------------------------ 読み
+
+    THREAT_FLOOR = 0.12  # これ未満のテンパイ確率は無視する（計算量と雑音のため）
+
+    def _reads(self, view):
+        """(相手, テンパイ確率) のリスト。style.reading で読み方が変わる。"""
+        mode = self.style.reading
+        out = []
+        for p in view.others:
+            if mode == "oracle":
+                prob = 1.0 if (p.riichi or fast.shanten(p.hand, p.called) == 0) else 0.0
+            elif mode == "stats":
+                prob = reading.tenpai_probability(p, view.turn, use_tedashi=False)
+            elif mode == "tedashi":
+                prob = reading.tenpai_probability(p, view.turn, use_tedashi=True)
+            else:
+                prob = reading.heuristic_probability(
+                    p, view.turn, view.round_wind, view.game.seat_wind
+                )
+            if prob >= self.THREAT_FLOOR:
+                out.append((p, prob))
+        return out
+
     def _rank(self, view) -> int:
         return placement.rank_of(view.scores, view.seat)
 
@@ -170,10 +197,10 @@ class Player:
             v -= 0.10
         elif view.turn <= 5:
             v += 0.05
-        riichi_dealers = [p for p, _ in view.threats() if p.riichi and p.seat == view.game.dealer]
-        if riichi_dealers:
+        reads = self._reads(view)
+        if any(p.riichi and p.seat == view.game.dealer for p, _ in reads):
             v -= 0.10
-        if len(view.threats()) >= 2:
+        if sum(1 for _, lv in reads if lv >= 0.5) >= 2:
             v -= 0.12
         if me.riichi:
             v = 1.0  # リーチ後は選択肢がない
@@ -226,7 +253,7 @@ class Player:
         if me.riichi:
             return (me.drawn if me.drawn is not None else self._any_tile(me)), False
 
-        threats = view.threats()
+        threats = self._reads(view)
         level = max((l for _, l in threats), default=0.0)
 
         # 脅威の強さに応じて押し引きを決める。リーチ（level 1.0）なら基準表そのまま、
@@ -602,6 +629,57 @@ def make_awareness_lab() -> list:
                                 low_aggression=0.25, top_caution=0.25)),
         Player("攻め型", Style(**base, awareness="always", low_aggression=0.25, top_caution=0.0)),
         Player("守り型", Style(**base, awareness="always", low_aggression=0.0, top_caution=0.25)),
+    ]
+
+
+def make_reading_lab() -> list:
+    """読み方だけを変えた4人。ベース戦術は共通。
+
+    手書き読み : references/reading.md の副露数×巡目の表（従来の実装）
+    統計読み   : 実測テーブル。副露数×巡目だけを見る
+    手出し読み : 実測テーブル。直近3打の手出し／ツモ切りも見る
+    全知       : 相手の手牌が見える。**反則**だが、読みの上限を知るための参照点
+    """
+    base = dict(
+        push=0.50,
+        call_min_value=1000,
+        call_max_shanten=3,
+        damaten_value=8000,
+        riichi_bad_wait_cheap=True,
+        safety_weight=1.0,
+        value_weight=1.0,
+        last_place_desperation=0.15,
+    )
+    return [
+        Player("手書き読み", Style(**base, reading="heuristic")),
+        Player("統計読み", Style(**base, reading="stats")),
+        Player("手出し読み", Style(**base, reading="tedashi")),
+        Player("全知", Style(**base, reading="oracle")),
+    ]
+
+
+def make_reading_push_lab() -> list:
+    """「読みが正確になったら、押し引きの閾値も下げるべきか」を測る4人。
+
+    読み実験で、正確に読むほど順位が悪化した。放銃率は下がるのに和了率と
+    流局聴牌率が落ちる ＝ 正しく降りているが降りすぎている、という形だった。
+    押し引きの閾値は「読めない前提」で作られた表なので、読みが良くなったら
+    下げる（押す方向に寄せる）べきではないか、という仮説を確かめる。
+    """
+    base = dict(
+        call_min_value=1000,
+        call_max_shanten=3,
+        damaten_value=8000,
+        riichi_bad_wait_cheap=True,
+        safety_weight=1.0,
+        value_weight=1.0,
+        last_place_desperation=0.15,
+    )
+    return [
+        Player("手書き読み.50", Style(**base, reading="heuristic", push=0.50)),
+        Player("手出し読み.50", Style(**base, reading="tedashi", push=0.50)),
+        Player("手出し読み.35", Style(**base, reading="tedashi", push=0.35)),
+        Player("全知.35", Style(**base, reading="oracle", push=0.35)),
     ]
 
 

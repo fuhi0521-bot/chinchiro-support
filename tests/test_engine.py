@@ -290,6 +290,81 @@ def test_situational_players_run():
             assert sum(s.hanchan for s in stats.values()) == 4
 
 
+
+# --- 手出し／ツモ切りと読み -------------------------------------------------
+
+from mj import reading  # noqa: E402
+
+
+def test_tedashi_recorded():
+    """河と手出しフラグの長さが常に一致すること。"""
+    import random as _r
+
+    from mj.game import Game
+    from mj.players import make_players
+
+    ai = make_players()
+    rng = _r.Random(7)
+    for k in range(8):
+        g = Game(ai, [25000] * 4, 27, k % 4, 0, 0, rng)
+        g.play()
+        for p in g.players:
+            assert len(p.river) == len(p.tedashi), (len(p.river), len(p.tedashi))
+
+
+def test_reading_table_monotone():
+    """ツモ切りが続くほどテンパイ確率が上がること（副露あり・中盤以降）。"""
+    for melds in (1, 2):
+        for turn in (11, 14):
+            probs = []
+            for tg in range(4):
+                key = (melds, reading.turn_bucket(turn), tg)
+                v = reading.TENPAI_FULL.get(key)
+                if v is not None:
+                    probs.append(v)
+            assert len(probs) >= 3, (melds, turn)
+            assert probs[-1] > probs[0], (melds, turn, probs)
+
+
+def test_reading_beats_heuristic():
+    """実測テーブルが手書きの読みより当たること（未学習のシードで検証）。"""
+    import random as _r
+
+    from mj import fast as _fast
+    from mj.game import Game
+    from mj.players import make_players
+
+    truth, heur, stats = [], [], []
+    ai = make_players()
+    rng = _r.Random(20260906)
+    for k in range(14):
+        g = Game(ai, [25000] * 4, 27, k % 4, 0, 0, rng)
+        orig = type(ai[0]).discard
+
+        def hook(self, view, _orig=orig):
+            for p in view.others:
+                if p.riichi:
+                    continue
+                truth.append(1 if _fast.shanten(p.hand, p.called) == 0 else 0)
+                heur.append(
+                    reading.heuristic_probability(p, view.turn, view.round_wind, view.game.seat_wind)
+                )
+                stats.append(reading.tenpai_probability(p, view.turn))
+            return _orig(self, view)
+
+        type(ai[0]).discard = hook
+        try:
+            g.play()
+        finally:
+            type(ai[0]).discard = orig
+
+    n = len(truth)
+    assert n > 500, n
+    brier_h = sum((a - b) ** 2 for a, b in zip(heur, truth)) / n
+    brier_s = sum((a - b) ** 2 for a, b in zip(stats, truth)) / n
+    assert brier_s < brier_h, (brier_s, brier_h)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

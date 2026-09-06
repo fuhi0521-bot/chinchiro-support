@@ -16,7 +16,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from .game import Game
-from .players import make_awareness_lab, make_players
+from .players import (
+    make_awareness_lab,
+    make_players,
+    make_reading_lab,
+    make_reading_push_lab,
+)
 
 ROUND_NAMES = ["東", "南", "西"]
 
@@ -192,9 +197,15 @@ def build_lineup(lineup: str = "named", awareness: str = "none"):
 
     named     : ゆうだい / なおき / きくちゃん / ゆみこ（awareness を全員に適用）
     awareness : 状況判断の範囲だけを変えた4人（ベース戦術は共通）
+    reading   : 読み方だけを変えた4人（手書き / 統計 / 手出し込み / 全知）
+    reading-push : 読みの精度 × 押し引きの閾値
     """
     if lineup == "awareness":
         return make_awareness_lab()
+    if lineup == "reading":
+        return make_reading_lab()
+    if lineup == "reading-push":
+        return make_reading_push_lab()
     return make_players(awareness)
 
 

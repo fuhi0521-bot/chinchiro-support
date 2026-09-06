@@ -46,6 +46,10 @@ class PlayerState:
     meld_red: int = 0
     river: list[int] = field(default_factory=list)
     river_counts: list[int] = field(default_factory=lambda: [0] * NUM_TILES)
+    # 手出し（手牌から切った）なら True、ツモ切りなら False。river と同じ長さ
+    tedashi: list[bool] = field(default_factory=list)
+    # 手出しした牌が、その前から手牌にあった巡目（読みで「いつから持っていたか」を見る）
+    riichi_declared_at: int = -1
     riichi: bool = False
     riichi_turn: int = -1
     double_riichi: bool = False
@@ -213,7 +217,8 @@ class Game:
                 declare_riichi = False
             if declare_riichi and self.can_riichi(p, tile):
                 p.riichi = True
-                p.riichi_turn = self.turn_no
+                p.riichi_turn = len(p.river)
+                p.riichi_declared_at = (70 - len(self.live) + 3) // 4
                 p.ippatsu = True
                 p.double_riichi = self.first_go_around
                 p.score -= 1000
@@ -325,6 +330,8 @@ class Game:
 
     def discard(self, seat, tile) -> None:
         p = self.players[seat]
+        # ツモ切り = 引いてきた牌をそのまま切る。鳴いた直後は必ず手出し
+        p.tedashi.append(not (p.drawn is not None and tile == p.drawn))
         p.hand[tile] -= 1
         if tile in p.red and p.hand[tile] == 0:
             p.red.discard(tile)
@@ -405,6 +412,8 @@ class Game:
         src = self.players[from_seat]
         src.river.pop()
         src.river_counts[tile] -= 1
+        if src.tedashi:
+            src.tedashi.pop()
         for pl in self.players:
             pl.ippatsu = False
         self.first_go_around = False
