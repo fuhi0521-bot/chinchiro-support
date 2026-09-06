@@ -62,6 +62,8 @@ class PlayerState:
     drawn: int | None = None
     drawn_red: bool = False
     yaku_goal: tuple | None = None  # 鳴いた後に向かう役 ('tanyao',) / ('honitsu', 色) / ('yakuhai',)
+    # 鳴いた直後に切った牌。読みに使う（中張牌ならテンパイが近い）
+    after_call_discards: list = field(default_factory=list)
 
     @property
     def menzen(self) -> bool:
@@ -482,6 +484,7 @@ class Game:
             alts = [x for x in range(NUM_TILES) if p.hand[x] and x not in forbidden]
             tile2 = alts[0] if alts else next(x for x in range(NUM_TILES) if p.hand[x])
         self.discard(seat, tile2)
+        p.after_call_discards.append(tile2)
         nxt, res = self.after_discard(seat, tile2)
         if res:
             return None, res
