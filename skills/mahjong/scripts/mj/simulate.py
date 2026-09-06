@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from .game import Game
 from .players import (
     make_awareness_lab,
+    make_fifth,
     make_players,
     make_reading_lab,
     make_honitsu_lab,
@@ -216,7 +217,22 @@ def build_lineup(lineup: str = "named", awareness: str = "none"):
         return make_reading_push_lab()
     if lineup == "honitsu":
         return make_honitsu_lab()
+    if lineup == "five":
+        # 麻雀は4人でしか打てないので、5人だと毎半荘1人が抜け番になる
+        return make_players(awareness) + [make_fifth()]
     return make_players(awareness)
+
+
+def seat_for(ai, i: int):
+    """i半荘目に座る4人を返す。
+
+    5人以上いるときは1人ずつ抜け番にして順に回す。
+    5人なら20半荘で、全員が各席に同じ回数座り、抜け番も同じ回数になる。
+    """
+    k = len(ai)
+    if k == 4:
+        return [ai[(i + j) % 4] for j in range(4)]
+    return [ai[(i + j) % k] for j in range(4)]
 
 
 def run(n: int, seed: int = 0, progress=None, lineup: str = "named", awareness: str = "none"):
@@ -224,7 +240,8 @@ def run(n: int, seed: int = 0, progress=None, lineup: str = "named", awareness: 
     rng = random.Random(seed)
     total = {p.name: Stats() for p in ai}
     for i in range(n):
-        s = play_hanchan(ai, rng, start_offset=i % 4)
+        seated = seat_for(ai, i)
+        s = play_hanchan(seated, rng, start_offset=0)
         for name, st in s.items():
             total[name].merge(st)
         if progress and (i + 1) % progress == 0:

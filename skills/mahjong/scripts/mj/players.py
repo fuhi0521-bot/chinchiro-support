@@ -60,6 +60,9 @@ class Style:
     #   tedashi   = 実測表（手出し・ツモ切り込み） / oracle = 相手の手牌が見える（上限測定用）
     reading: str = "heuristic"
     chase_honitsu: bool = True  # 染め手（混一色・清一色）を狙うか
+    # 河から当たり牌を推定するか。現物・スジに加えて「早切りの周辺は安全」を使う。
+    # 安全の根拠がある牌なら無筋でも切り、根拠が無ければスジでも避ける。
+    river_read: bool = False
     # 鳴いて染めに向かう最低枚数（その色＋字牌）。大きいほど選択的。
     # 2000半荘の実験で 11 が最良だった（9だと雑に染めて順位が下がる）
     honitsu_min: int = 11
@@ -275,6 +278,22 @@ class Player:
     def _any_tile(self, me):
         return next(t for t in range(NUM_TILES) if me.hand[t])
 
+    def _risk_of(self, view, tile, threats, seen):
+        """その牌を切ったときの放銃リスク。相手ごとのテンパイ確率で重み付けする。
+
+        river_read が有効なら、河から当たり牌を推定する（早切りの周辺は無筋でも安全、
+        という実測に基づく）。無効なら従来どおり現物・スジ・壁だけで見る。
+        """
+        total = 0.0
+        for p, level in threats:
+            weight = 1.5 if p.seat == view.game.dealer else 1.0
+            if self.style.river_read:
+                r = reading.wait_risk(p, tile, seen)
+            else:
+                r = danger([tile], p.river_counts, seen, late=view.turn >= 8)[0].risk
+            total += r * level * weight
+        return total
+
     def _fold_discard(self, view, threats, forbidden=frozenset()):
         """降りる。安全度が最優先だが、同じくらい安全なら手を残す（回し打ち寄り）。
 
@@ -287,14 +306,7 @@ class Player:
             candidates = [t for t in range(NUM_TILES) if me.hand[t]]
         seen = view.seen_all()
         seen_out = view.visible()
-        risks = {}
-        for t in candidates:
-            risk = 0.0
-            for p, level in threats:
-                d = danger([t], p.river_counts, seen, late=view.turn >= 8)[0]
-                w = 1.5 if p.seat == view.game.dealer else 1.0
-                risk += d.risk * level * w
-            risks[t] = risk
+        risks = {t: self._risk_of(view, t, threats, seen) for t in candidates}
         floor = min(risks.values())
         # 最安手から 1.0ポイント以内の牌を「同程度に安全」とみなす
         near = [t for t in candidates if risks[t] <= floor + 1.0]
@@ -373,11 +385,7 @@ class Player:
                     score += 14
             # 危険度
             if threats:
-                risk = 0.0
-                for p, lv in threats:
-                    d = danger([t], p.river_counts, seen_all, late=view.turn >= 8)[0]
-                    w = 1.5 if p.seat == view.game.dealer else 1.0
-                    risk += d.risk * lv * w
+                risk = self._risk_of(view, t, threats, seen_all)
                 score -= risk * 2.2 * self.style.safety_weight
             scored.append((score, t))
         scored.sort(reverse=True)
@@ -759,6 +767,44 @@ def make_honitsu_lab() -> list:
         Player("11枚で染める", Style(**base, chase_honitsu=True, honitsu_min=11)),
         Player("12枚で染める", Style(**base, chase_honitsu=True, honitsu_min=12)),
     ]
+
+
+def make_fifth() -> "Player":
+    """5人目「さとる」— 河を読んで危険牌を避け、根拠のある安全牌なら無筋でも切る。
+
+    他の4人との違いは3つ。
+
+    1. **相手のテンパイを手出し／ツモ切りから読む**（reading="tedashi"）。
+       1副露でツモ切り3連続ならテンパイ69%、2副露でも手出しが続くなら25%、
+       という実測テーブルを使う
+    2. **当たり牌を河から推定する**（river_read）。現物・スジに加えて
+       「序盤に切られた牌の隣は無筋でも4割安全」という実測を使う。
+       安全の根拠があれば無筋でも切り、根拠が無ければ避ける
+    3. **テンパイのサインが出たら打ち方を切り替える**。読んだテンパイ確率が
+       そのまま押し引きの重みになるので、相手の河次第で自然に硬軟が変わる
+
+    押し引きの閾値は 0.42。読みが正確なぶん、押せると判断したら押す
+    （読みだけ良くして閾値を据え置くと、怖がって降りすぎて逆に弱くなることが
+    実験で分かっているため。results/experiment-reading.md）。
+    """
+    return Player(
+        "さとる",
+        Style(
+            awareness="allast",
+            allast_conditions=True,
+            low_aggression=0.25,
+            push=0.42,
+            call_min_value=2000,
+            call_max_shanten=3,
+            damaten_value=8000,
+            riichi_bad_wait_cheap=True,
+            safety_weight=1.3,
+            value_weight=1.0,
+            last_place_desperation=0.15,
+            reading="tedashi",
+            river_read=True,
+        ),
+    )
 
 
 def make_players(awareness: str = "none", **knobs) -> list:

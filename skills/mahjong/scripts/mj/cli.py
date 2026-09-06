@@ -257,8 +257,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--hanchan", "-n", type=int, default=100)
     s.add_argument("--seed", type=int, default=1)
     s.add_argument("--workers", "-j", type=int, default=0, help="並列プロセス数（0で自動）")
-    s.add_argument("--lineup", default="named", choices=["named", "awareness", "reading", "reading-push", "honitsu"],
-                   help="named=4人の雀士 / awareness=状況判断 / reading=読み方 / reading-push=読み×押し引き閾値")
+    s.add_argument("--lineup", default="named", choices=["named", "awareness", "reading", "reading-push", "honitsu", "five"],
+                   help="named=4人 / five=5人（毎半荘1人が抜け番） / awareness / reading / reading-push / honitsu")
     s.add_argument("--awareness", default="none", choices=["none", "allast", "south", "always"],
                    help="named のとき、4人全員に適用する状況判断の範囲")
     s.set_defaults(func=cmd_match)

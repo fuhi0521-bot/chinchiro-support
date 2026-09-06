@@ -93,6 +93,7 @@ python3 skills/mahjong/scripts/mj.py match --hanchan 1000 -j 4
 - `results/experiment-reading.md` — 「読みは順位になるか」の検証（手出し／ツモ切り・鳴き読み）
 - `results/experiment-honitsu.md` — 「なぜ染め手をやらないのか」と、役の出現率の実戦との比較
 - `results/rules-conformance.md` — 雀魂ルールとの照合。見つけて直したバグ4件
+- `results/yaku-distribution-10000.md` — 10,000半荘の役分布と実戦統計との照合
 
 ## 中身
 
