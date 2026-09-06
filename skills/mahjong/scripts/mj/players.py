@@ -986,6 +986,37 @@ def make_shape_lab() -> list:
     ]
 
 
+def make_kaname_lab() -> list:
+    """かなめの改良案を、現行版と直接ぶつけて確かめる。
+
+    自己診断（mj.py match --review）が出した指摘を1つずつ試す:
+      - 押しが足りないのでは → push を 0.30 → 0.18
+      - 副露率44%は実戦(32.6%)より多すぎる → 鳴きを絞る
+      - 立直率が高く打点が伸びていない → 打点重視に寄せる
+    """
+    base = dict(
+        awareness="allast",
+        allast_conditions=True,
+        low_aggression=0.25,
+        top_caution=0.0,
+        damaten_value=8000,
+        riichi_bad_wait_cheap=True,
+        value_weight=1.2,
+        last_place_desperation=0.18,
+        reading="tedashi",
+        river_read=True,
+        honitsu_min=11,
+        safety_weight=0.5,
+    )
+    return [
+        Player("かなめ現行", Style(**base, push=0.30, call_min_value=1500, call_max_shanten=3)),
+        Player("かなめ押し強", Style(**{**base, "push": 0.18}, call_min_value=1500, call_max_shanten=3)),
+        Player("かなめ鳴き絞", Style(**base, push=0.30, call_min_value=3000, call_max_shanten=2)),
+        Player("かなめ打点", Style(**{**base, "value_weight": 1.6, "damaten_value": 6000},
+                                push=0.30, call_min_value=2600, call_max_shanten=3)),
+    ]
+
+
 def make_players(awareness: str = "none", think: bool = True, **knobs) -> list:
     """4人の雀士。awareness を指定すると全員に同じ状況判断を載せる。
 
