@@ -25,6 +25,7 @@ from .players import (
     make_honitsu_lab,
     make_kaname_lab,
     make_shape_lab,
+    make_wall_lab,
     make_reading_push_lab,
 )
 
@@ -224,6 +225,8 @@ def build_lineup(lineup: str = "named", awareness: str = "none"):
         return make_shape_lab()
     if lineup == "kaname":
         return make_kaname_lab()
+    if lineup == "wall":
+        return make_wall_lab()
     if lineup == "five":
         # 麻雀は4人でしか打てないので、5人だと毎半荘1人が抜け番になる
         return make_players(awareness) + [make_fifth()]

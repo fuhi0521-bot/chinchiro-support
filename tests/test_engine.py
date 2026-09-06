@@ -530,6 +530,71 @@ def test_honitsu_is_pursued():
     assert counts[True] >= 3, counts
 
 
+def test_toitoi_route():
+    """対子が固まったときだけ、対々和に向かってポンできること。
+
+    么九牌の対子は役牌でもタンヤオでもないので、対々和の道が無いと
+    鳴いた後の役が無く、一生ポンできなかった（8万和了で対々和 0.13%）。
+    同時に、**七対子のほうが近い手で鳴いてしまわない**ことも確かめる。
+    対子が多い手は七対子のシャンテンが良く出るので、
+    素朴に一般形で比べると必ず「鳴いたほうが得」に見えてしまう。
+    """
+    import random as _r
+
+    from mj.game import Game, View
+    from mj.players import Player, Style
+    from mj.tiles import parse_counts
+
+    def ask(chase, text, tile, extra=()):
+        counts, _ = parse_counts(text)
+        counts = list(counts)
+        for t in extra:
+            counts[t] += 1
+        assert sum(counts) == 13
+        ai = [
+            Player(f"p{i}", Style(chase_toitoi=chase, call_min_value=1000,
+                                  call_max_shanten=3))
+            for i in range(4)
+        ]
+        g = Game(ai, [25000] * 4, 27, 0, 0, 0, _r.Random(1))
+        g.players[1].hand = counts
+        call = ai[1].want_call(View(g, 1, discarded=tile, from_seat=0),
+                               [("pon", None)])
+        return call, g.players[1].yaku_goal
+
+    # 4対子＋暗刻。ここは対々和に向かう
+    call, goal = ask(True, "111m99m1133p99s4s6s", 8)
+    assert call == ("pon", None) and goal == ("toitoi",), (call, goal)
+    assert ask(False, "111m99m1133p99s4s6s", 8)[0] is None
+
+    # 七対子テンパイ。鳴いたら壊れるので鳴かない
+    assert ask(True, "1199m1133p99s5m", 0, (27, 27))[0] is None
+    # 門前で暗刻が無い5対子も、七対子のほうが近い
+    assert ask(True, "1199m1133p99s5m7s", 0, (27,))[0] is None
+
+
+def test_wall_reading_beats_flat():
+    """山読みが「均等割り」より当たること。
+
+    見えていない牌が相手の手にあるか山にあるかを、実際の山と突き合わせて測る。
+    同じ「見えていない枚数」の2牌を比べて、山に濃いほうを当てられる割合が
+    五分（50%）を明確に超えていれば、枚数だけでは見えない差を掴めている。
+    """
+    from mj import wall_fit
+
+    rows = wall_fit.collect(25, seed=31)
+    acc, n = wall_fit.pair_accuracy(rows, sample=60_000)
+    assert n > 5000, n
+    assert acc > 0.62, acc
+    model = wall_fit.rmse([(r[0], r[2]) for r in rows])
+    flat = wall_fit.rmse([(r[1], r[2]) for r in rows])
+    assert model < flat, (model, flat)
+
+    # 字牌は「山に残りやすい」側、5は「抱えられやすい」側に出ること
+    from mj import wall
+    assert wall.HONOR_HOLD < wall.RANK_HOLD[0] < wall.RANK_HOLD[4]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

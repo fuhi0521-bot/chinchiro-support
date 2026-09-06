@@ -674,6 +674,9 @@ class Player:
         if me.riichi:
             return None
         cur = fast.shanten(me.hand, me.called)
+        # 対子が多い手は七対子のシャンテンが良く出るので、ポンは必ず「損」に見える。
+        # 対々和に向かうときだけは一般形どうしで比べる。
+        cur_std = fast.shanten_standard(me.hand, me.called)
         tile = view.discarded
 
         best = None
@@ -682,8 +685,10 @@ class Player:
             after = self._simulate_call(me, kind, arg, tile)
             if after is None:
                 continue
-            new_shanten, restore = after
+            new_shanten, new_std, restore = after
             gain = cur - new_shanten
+            if gain <= 0 and kind in ("pon", "minkan") and self._toitoi_route(me, tile):
+                gain = cur_std - new_std
             restore()
             if gain <= 0:
                 continue
@@ -699,6 +704,8 @@ class Player:
         goal = self._has_yaku_route(view, best, tile)
         if goal is None:
             return None
+        # 打点の見積りは「向かう役」込みで出す。鳴かないと決めたら元に戻す
+        prev_goal = me.yaku_goal
         me.yaku_goal = goal
         value = self.estimate_value(view)
         if not me.menzen:
@@ -710,6 +717,7 @@ class Player:
         if ranks.index(view.seat) == 3 and view.game.round_wind != 27:
             threshold = int(threshold * 0.6)
         if value < threshold and cur > 0:
+            me.yaku_goal = prev_goal
             return None
         return best
 
@@ -733,21 +741,41 @@ class Player:
                     removed.append((start + k, 1))
         called = me.called + 1
         # 鳴いた直後は14枚相当。打牌後の13枚で比べないと必ず「得」に見えてしまう。
-        s = 99
+        s = std = 99
         for d in range(NUM_TILES):
             if not me.hand[d]:
                 continue
             me.hand[d] -= 1
             v = fast.shanten(me.hand, called)
+            w = fast.shanten_standard(me.hand, called)
             me.hand[d] += 1
             if v < s:
                 s = v
+            if w < std:
+                std = w
 
         def restore():
             for t, n in removed:
                 me.hand[t] += n
 
-        return s, restore
+        return s, std, restore
+
+    def _toitoi_route(self, me, tile) -> bool:
+        """この牌をポンして対々和に向かえるか。
+
+        必要なのは「刻子4＋雀頭」が全部トイツから作れる見込み。
+        すでに鳴いた刻子＋手の中の対子で5ブロック見えていれば向かう。
+        チーが1つでも入っていたら対々和にはならない。
+        """
+        if not self.style.chase_toitoi or any(m.kind == "chi" for m in me.melds):
+            return False
+        # 門前で暗刻も無いなら七対子のほうが近い。鳴いて壊すのは損
+        if me.menzen and not any(me.hand[t] >= 3 for t in range(NUM_TILES)):
+            if fast.shanten_chiitoi(me.hand) <= 1:
+                return False
+        sets = sum(1 for m in me.melds if m.kind != "chi") + 1
+        pairs = sum(1 for t in range(NUM_TILES) if t != tile and me.hand[t] >= 2)
+        return sets + pairs >= 5
 
     def _has_yaku_route(self, view, choice, tile):
         """鳴いた後に向かえる役を返す。無ければ None。"""
@@ -772,13 +800,8 @@ class Player:
             return None if kind == "chi" else ("toitoi",)
         # 対々和 — 鳴いた時点で「刻子＋対子」が5ブロック見えているなら向かえる。
         # 么九牌の対子は役牌でもタンヤオでもないので、この道が無いと一生ポンできない。
-        if self.style.chase_toitoi and kind in ("pon", "minkan"):
-            if not any(m.kind == "chi" for m in me.melds):
-                sets = sum(1 for m in me.melds if m.kind != "chi") + 1
-                pairs = sum(1 for t in range(NUM_TILES)
-                            if t != tile and me.hand[t] >= 2)
-                if sets + pairs >= 5:
-                    return ("toitoi",)
+        if kind in ("pon", "minkan") and self._toitoi_route(me, tile):
+            return ("toitoi",)
         # 断幺九
         tiles = [t for t in range(NUM_TILES) if me.hand[t]]
         called_tiles = [t for m in me.melds for t in m.tiles]
@@ -1036,6 +1059,39 @@ def make_shape_lab() -> list:
         Player("枚数だけA", Style(**base, shape_aware=False)),
         Player("形を見るB", Style(**base, shape_aware=True)),
         Player("枚数だけB", Style(**base, shape_aware=False)),
+    ]
+
+
+def make_wall_lab() -> list:
+    """新しい2つの層を 2×2 で切り分ける。土台はかなめ。
+
+      - 山読み（wall_read）  … 受け入れと待ちを「山に残っていそうな枚数」で数える
+      - 対々和（chase_toitoi）… 么九牌の対子からポンして対々和に向かう
+
+    両方入れて良くなったのか、片方だけが効いたのかを1回の対戦で分ける。
+    """
+    base = dict(
+        awareness="allast",
+        allast_conditions=True,
+        low_aggression=0.25,
+        top_caution=0.0,
+        riichi_bad_wait_cheap=True,
+        last_place_desperation=0.18,
+        reading="tedashi",
+        river_read=True,
+        honitsu_min=11,
+        safety_weight=0.5,
+        call_min_value=1500,
+        call_max_shanten=3,
+        push=0.30,
+        value_weight=1.2,
+        damaten_value=8000,
+    )
+    return [
+        Player("素", Style(**base, wall_read=False, chase_toitoi=False)),
+        Player("山読み", Style(**base, wall_read=True, chase_toitoi=False)),
+        Player("対々和", Style(**base, wall_read=False, chase_toitoi=True)),
+        Player("両方", Style(**base, wall_read=True, chase_toitoi=True)),
     ]
 
 
