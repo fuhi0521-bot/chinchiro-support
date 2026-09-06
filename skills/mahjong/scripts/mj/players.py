@@ -59,6 +59,10 @@ class Style:
     #   heuristic = 手書きの副露数×巡目 / stats = 実測表（手出しを見ない）
     #   tedashi   = 実測表（手出し・ツモ切り込み） / oracle = 相手の手牌が見える（上限測定用）
     reading: str = "heuristic"
+    chase_honitsu: bool = True  # 染め手（混一色・清一色）を狙うか
+    # 鳴いて染めに向かう最低枚数（その色＋字牌）。大きいほど選択的。
+    # 2000半荘の実験で 11 が最良だった（9だと雑に染めて順位が下がる）
+    honitsu_min: int = 11
 
 
 def value_band(points: int) -> str:
@@ -248,7 +252,11 @@ class Player:
 
     # ------------------------------------------------------------ 打牌
 
-    def discard(self, view):
+    def discard(self, view, forbidden=frozenset()):
+        """切る牌と、リーチするかを返す。
+
+        forbidden は切れない牌（喰い替え禁止）。
+        """
         me = view.me
         if me.riichi:
             return (me.drawn if me.drawn is not None else self._any_tile(me)), False
@@ -260,21 +268,23 @@ class Player:
         # 2副露（0.5）なら「よほど絶望的でなければ押す」に自然に落ちる。
         if level > 0:
             if not self._should_push(self.push_value(view, level)):
-                return self._fold_discard(view, threats), False
+                return self._fold_discard(view, threats, forbidden), False
 
-        return self._push_discard(view, threats, level)
+        return self._push_discard(view, threats, level, forbidden)
 
     def _any_tile(self, me):
         return next(t for t in range(NUM_TILES) if me.hand[t])
 
-    def _fold_discard(self, view, threats):
+    def _fold_discard(self, view, threats, forbidden=frozenset()):
         """降りる。安全度が最優先だが、同じくらい安全なら手を残す（回し打ち寄り）。
 
         安全牌が複数あるときに手をバラすのは、ただの損。
         安全度が並んだら受け入れの広いほうを残す。
         """
         me = view.me
-        candidates = [t for t in range(NUM_TILES) if me.hand[t]]
+        candidates = [t for t in range(NUM_TILES) if me.hand[t] and t not in forbidden]
+        if not candidates:
+            candidates = [t for t in range(NUM_TILES) if me.hand[t]]
         seen = view.seen_all()
         seen_out = view.visible()
         risks = {}
@@ -303,7 +313,7 @@ class Player:
                 best, best_score = t, score
         return best
 
-    def _push_discard(self, view, threats, level):
+    def _push_discard(self, view, threats, level, forbidden=frozenset()):
         """前に出る。受け入れ・打点・安全度を合わせて選ぶ。"""
         me = view.me
         hand = me.hand
@@ -312,13 +322,22 @@ class Player:
         options = []
         base_shanten = None
         for t in range(NUM_TILES):
-            if not hand[t]:
+            if not hand[t] or t in forbidden:
                 continue
             hand[t] -= 1
             s = fast.shanten(hand, me.called)
             hand[t] += 1
             options.append((t, s))
+        if not options:  # 全部禁止（起こらないはずだが保険）
+            t0 = next(x for x in range(NUM_TILES) if hand[x])
+            options = [(t0, fast.shanten(hand, me.called))]
         best_s = min(s for _, s in options)
+        # 門前の染め手判定はループの外で1回だけやる
+        chase_suit = None
+        if self.style.chase_honitsu and not me.open_melds:
+            cs, cnt = self._suit_shape(me)
+            if cnt >= self.style.honitsu_min + 1:
+                chase_suit = cs
         if base_shanten is None:
             base_shanten = best_s
         keep = [t for t, s in options if s == best_s]
@@ -342,6 +361,9 @@ class Player:
             if t in DRAGONS or t == view.seat_wind or t == view.round_wind:
                 if me.hand[t] >= 2:
                     score -= 5 * self.style.value_weight
+            # 門前でも色が寄っていれば染め手に向かう（混一色は門前3翻）
+            if chase_suit is not None and t < HONOR and t // 9 != chase_suit:
+                score += 10
             # 鳴いた後は役を確定させにいく。役に要らない牌を優先して切る
             if me.open_melds and me.yaku_goal:
                 goal = me.yaku_goal
@@ -573,6 +595,13 @@ class Player:
         """鳴いた後に向かえる役を返す。無ければ None。"""
         me = view.me
         kind, arg = choice
+        # 染め手を最初に見る。混一色は鳴いても2翻あるので役牌・タンヤオより価値が高い
+        if self.style.chase_honitsu:
+            best, count = self._suit_shape(me, tile)
+            if count >= self.style.honitsu_min:
+                fits = (arg // 9 == best) if kind == "chi" else (tile >= HONOR or tile // 9 == best)
+                if fits:
+                    return ("honitsu", best)
         # 役牌の刻子
         if kind in ("pon", "minkan") and (tile in DRAGONS or tile == view.seat_wind or tile == view.round_wind):
             return ("yakuhai",)
@@ -592,13 +621,37 @@ class Player:
             # 么九牌が2枚までなら、鳴いた後に落として断幺九に向かえる
             if yaochu_in_hand <= 2:
                 return ("tanyao",)
-        # 染め手
-        suits = {t // 9 for t in tiles if t < HONOR}
-        if len(suits) <= 1 and sum(me.hand[t] for t in range(HONOR, NUM_TILES)) + sum(
-            me.hand[t] for t in range(NUM_TILES) if t < HONOR and (t // 9) in suits
-        ) >= 10:
-            return ("honitsu", next(iter(suits)) if suits else 0)
         return None
+
+    def _suit_shape(self, me, extra_tile=None):
+        """(いちばん多い色, その色＋字牌の枚数)。副露と、鳴こうとしている牌も数える。
+
+        以前は「手牌が既に1色になっているか」で判定していたので、
+        染めかけの手を一生拾えなかった。ここは枚数で見る。
+        """
+        by_suit = [0, 0, 0]
+        honors = 0
+        for x in range(NUM_TILES):
+            n = me.hand[x]
+            if not n:
+                continue
+            if x >= HONOR:
+                honors += n
+            else:
+                by_suit[x // 9] += n
+        for m in me.melds:
+            for x in m.tiles:
+                if x >= HONOR:
+                    honors += 1
+                else:
+                    by_suit[x // 9] += 1
+        if extra_tile is not None:
+            if extra_tile >= HONOR:
+                honors += 1
+            else:
+                by_suit[extra_tile // 9] += 1
+        best = max(range(3), key=lambda s: by_suit[s])
+        return best, by_suit[best] + honors
 
 
 def make_awareness_lab() -> list:
@@ -680,6 +733,31 @@ def make_reading_push_lab() -> list:
         Player("手出し読み.50", Style(**base, reading="tedashi", push=0.50)),
         Player("手出し読み.35", Style(**base, reading="tedashi", push=0.35)),
         Player("全知.35", Style(**base, reading="oracle", push=0.35)),
+    ]
+
+
+def make_honitsu_lab() -> list:
+    """染め手にどれくらい選択的であるべきかを測る4人。
+
+    honitsu_min は「その色＋字牌が何枚あれば染めに向かうか」。
+    大きいほど選択的（染める頻度が下がる）。
+    """
+    base = dict(
+        push=0.50,
+        call_min_value=1000,
+        call_max_shanten=3,
+        damaten_value=8000,
+        riichi_bad_wait_cheap=True,
+        safety_weight=1.0,
+        value_weight=1.0,
+        last_place_desperation=0.15,
+        reading="tedashi",
+    )
+    return [
+        Player("染めない", Style(**base, chase_honitsu=False)),
+        Player("9枚で染める", Style(**base, chase_honitsu=True, honitsu_min=9)),
+        Player("11枚で染める", Style(**base, chase_honitsu=True, honitsu_min=11)),
+        Player("12枚で染める", Style(**base, chase_honitsu=True, honitsu_min=12)),
     ]
 
 

@@ -341,7 +341,7 @@ def test_reading_beats_heuristic():
         g = Game(ai, [25000] * 4, 27, k % 4, 0, 0, rng)
         orig = type(ai[0]).discard
 
-        def hook(self, view, _orig=orig):
+        def hook(self, view, *a, _orig=orig, **kw):
             for p in view.others:
                 if p.riichi:
                     continue
@@ -350,7 +350,7 @@ def test_reading_beats_heuristic():
                     reading.heuristic_probability(p, view.turn, view.round_wind, view.game.seat_wind)
                 )
                 stats.append(reading.tenpai_probability(p, view.turn))
-            return _orig(self, view)
+            return _orig(self, view, *a, **kw)
 
         type(ai[0]).discard = hook
         try:
@@ -363,6 +363,136 @@ def test_reading_beats_heuristic():
     brier_h = sum((a - b) ** 2 for a, b in zip(heur, truth)) / n
     brier_s = sum((a - b) ** 2 for a, b in zip(stats, truth)) / n
     assert brier_s < brier_h, (brier_s, brier_h)
+
+
+
+# --- ルールの監査 -----------------------------------------------------------
+
+
+def test_rules_audit():
+    """半荘を回しながら、ルール上の不変条件を全部検査する。
+
+    ここで見ているもの:
+      牌の総数136 / 手牌枚数 / 点棒の保存 / 王牌14枚とドラ表示牌の枚数
+      チーは上家のみ / リーチ後に鳴かない / リーチの成立条件
+      現物喰い替えの禁止 / 役なし和了がない / 流局時の収支が0
+      赤ドラ3枚 / 河と手出しフラグの整合
+    """
+    import random as _r
+
+    from mj.game import DORA_POS, RINSHAN_POS, Game
+    from mj.players import make_players
+
+    ai = make_players()
+    rng = _r.Random(31)
+    violations = []
+
+    orig_discard = Game.discard
+    orig_call = Game.do_call
+    orig_riichi = Game.can_riichi
+
+    def d(self, seat, tile):
+        total = len(self.live) + len(self.dead)
+        for q in self.players:
+            total += sum(q.hand) + len(q.river) + sum(len(m.tiles) for m in q.melds)
+        if total != 136:
+            violations.append(f"牌の総数が{total}")
+        return orig_discard(self, seat, tile)
+
+    def c(self, seat, choice, tile, from_seat):
+        kind, _arg = choice
+        if kind == "chi" and (from_seat + 1) % 4 != seat:
+            violations.append("チーが上家以外から")
+        if self.players[seat].riichi:
+            violations.append("リーチ後に鳴いた")
+        r = orig_call(self, seat, choice, tile, from_seat)
+        p = self.players[seat]
+        if p.river and p.river[-1] == tile:
+            violations.append("現物喰い替え")
+        return r
+
+    def rc(self, p, tile):
+        ok = orig_riichi(self, p, tile)
+        if ok and not (p.menzen and p.score >= 1000 and len(self.live) >= 4):
+            violations.append("リーチの条件を満たしていない")
+        return ok
+
+    Game.discard, Game.do_call, Game.can_riichi = d, c, rc
+    try:
+        for k in range(60):
+            g = Game(ai, [25000] * 4, 27 + (k // 4) % 2, k % 4, k % 3, k % 2, rng)
+            before = sum(pl.score for pl in g.players) + (k % 2) * 1000
+            res = g.play()
+
+            assert len(g.dead) == 14
+            assert len(g.dora_indicators) == 1 + g.kan_count
+            assert len(g.ura_indicators) == len(g.dora_indicators)
+            used = (
+                set(DORA_POS[: len(g.dora_indicators)])
+                | {x + 1 for x in DORA_POS[: len(g.dora_indicators)]}
+                | set(RINSHAN_POS[: g.rinshan_taken])
+            )
+            assert len(used) == len(g.dora_indicators) * 2 + g.rinshan_taken
+
+            after_scores = [g.players[i].score + res.deltas[i] for i in range(4)]
+            new_sticks = 0 if res.kind in ("tsumo", "ron") else g.sticks
+            assert before == sum(after_scores) + new_sticks * 1000, (before, after_scores)
+
+            if res.kind == "draw":
+                assert sum(res.deltas) == 0
+
+            for p in g.players:
+                assert len(p.river) == len(p.tedashi)
+                assert sum(p.hand) + 3 * p.called in (13, 14)
+
+            for _seat, pts, _han, _fu, yaku in res.winners:
+                assert yaku, "役なしで和了した"
+                assert pts > 0
+    finally:
+        Game.discard, Game.do_call, Game.can_riichi = orig_discard, orig_call, orig_riichi
+
+    assert not violations, violations
+
+
+def test_red_dora_count():
+    """赤ドラは 5m/5p/5s の各1枚、計3枚。"""
+    import random as _r
+
+    from mj.game import Game
+    from mj.players import make_players
+
+    rng = _r.Random(5)
+    for _ in range(20):
+        g = Game(make_players(), [25000] * 4, 27, 0, 0, 0, rng)
+        reds = sum(1 for _t, r in (g.live + g.dead) if r) + sum(len(p.red) for p in g.players)
+        assert reds == 3, reds
+
+
+def test_honitsu_is_pursued():
+    """染め手を狙う設定で、実際に混一色が出ること。"""
+    import collections as _c
+    import random as _r
+
+    from mj.game import Game
+    from mj.players import make_players
+
+    counts = {}
+    for chase in (False, True):
+        ai = make_players()
+        for p in ai:
+            p.style.chase_honitsu = chase
+        rng = _r.Random(77)
+        yaku = _c.Counter()
+        wins = 0
+        for k in range(60):
+            res = Game(ai, [25000] * 4, 27 + (k // 4) % 2, k % 4, 0, 0, rng).play()
+            for _s, _p, _h, _f, ys in res.winners:
+                wins += 1
+                for y in ys:
+                    yaku[y] += 1
+        counts[chase] = (yaku["混一色"] + yaku["清一色"], wins)
+    off, on = counts[False], counts[True]
+    assert on[0] > off[0], (off, on)
 
 
 if __name__ == "__main__":

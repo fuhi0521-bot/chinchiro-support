@@ -20,6 +20,7 @@ from .players import (
     make_awareness_lab,
     make_players,
     make_reading_lab,
+    make_honitsu_lab,
     make_reading_push_lab,
 )
 
@@ -206,6 +207,8 @@ def build_lineup(lineup: str = "named", awareness: str = "none"):
         return make_reading_lab()
     if lineup == "reading-push":
         return make_reading_push_lab()
+    if lineup == "honitsu":
+        return make_honitsu_lab()
     return make_players(awareness)
 
 

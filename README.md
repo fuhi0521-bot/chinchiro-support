@@ -91,6 +91,8 @@ python3 skills/mahjong/scripts/mj.py match --hanchan 1000 -j 4
 - `results/match-1000.txt` — 最初の1000半荘（較正前）
 - `results/experiment-awareness.md` — 「点数状況で打ち回しを変えると順位は上がるか」の検証（計9000半荘）
 - `results/experiment-reading.md` — 「読みは順位になるか」の検証（手出し／ツモ切り・鳴き読み）
+- `results/experiment-honitsu.md` — 「なぜ染め手をやらないのか」と、役の出現率の実戦との比較
+- `results/rules-conformance.md` — 雀魂ルールとの照合。見つけて直したバグ4件
 
 ## 中身
 

@@ -21,6 +21,9 @@ from .tiles import DRAGONS, HONOR, NUM_TILES, YAOCHU, dora_from_indicator
 from .yaku import Context, evaluate
 
 RED_TILES = (4, 13, 22)  # 5m 5p 5s
+# 王牌14枚の役割を固定する。ここをずらすとカンドラが別の牌を指してしまう
+DORA_POS = (0, 2, 4, 6, 8)      # ドラ表示牌（最大5枚）
+RINSHAN_POS = (13, 12, 11, 10)  # 嶺上牌（最大4枚）
 YAOCHU_SET = frozenset(YAOCHU)
 WINDS = (27, 28, 29, 30)  # 東 南 西 北
 
@@ -108,8 +111,8 @@ class Game:
         self.wall = build_wall(rng)
         self.dead = self.wall[-14:]
         self.live = self.wall[:-14]
-        self.dora_indicators = [self.dead[0][0]]
-        self.ura_indicators = [self.dead[1][0]]
+        self.dora_indicators = [self.dead[DORA_POS[0]][0]]
+        self.rinshan_taken = 0
         self.kan_count = 0
         self.turn_no = 0
         self.first_go_around = True
@@ -126,6 +129,19 @@ class Game:
                 if red:
                     p.red.add(t)
 
+    @property
+    def ura_indicators(self):
+        """裏ドラ表示牌。ドラ表示牌の1枚下なので、めくれた枚数ぶんだけ有効。"""
+        return [self.dead[p + 1][0] for p in DORA_POS[: len(self.dora_indicators)]]
+
+    def draw_rinshan(self):
+        """嶺上牌を引く。王牌を14枚に保つぶん、山が1枚減る。"""
+        t, red = self.dead[RINSHAN_POS[self.rinshan_taken]]
+        self.rinshan_taken += 1
+        if self.live:
+            self.live.pop()
+        return t, red
+
     def seat_wind(self, seat: int) -> int:
         return WINDS[(seat - self.dealer) % 4]
 
@@ -141,7 +157,7 @@ class Game:
     def ura_count(self, p: PlayerState) -> int:
         if not p.riichi:
             return 0
-        ura = [dora_from_indicator(i) for i in self.ura_indicators[: len(self.dora_indicators)]]
+        ura = [dora_from_indicator(i) for i in self.ura_indicators]
         n = 0
         for d in ura:
             n += p.hand[d]
@@ -177,9 +193,7 @@ class Game:
 
             # --- ツモ ---
             if rinshan:
-                t, red = self.dead.pop()
-                if self.live:
-                    self.dead.insert(0, self.live.pop())
+                t, red = self.draw_rinshan()
             else:
                 t, red = self.live.pop(0)
             p.hand[t] += 1
@@ -321,7 +335,7 @@ class Game:
                 if win and self.ai[other].want_ron(self.view(other, discarded=t, from_seat=seat)):
                     return self.settle_ron([other], t, seat, chankan=True)
         self.kan_count += 1
-        self.dora_indicators.append(self.dead[len(self.dora_indicators) * 2][0])
+        self.dora_indicators.append(self.dead[DORA_POS[len(self.dora_indicators)]][0])
         for pl in self.players:
             pl.ippatsu = False
         if self.kan_count == 4 and sum(1 for pl in self.players if any(m.is_kan for m in pl.melds)) > 1:
@@ -338,6 +352,9 @@ class Game:
         p.river.append(tile)
         p.river_counts[tile] += 1
         p.drawn = None
+        # 一発は「宣言の次の自分の打牌」で切れる。鳴きが入っても切れる（別途処理）
+        if p.ippatsu and len(p.river) > p.riichi_turn + 1:
+            p.ippatsu = False
         # フリテン更新
         waits = {t for t, _ in fast.ukeire(p.hand, p.called)[1]} if fast.shanten(p.hand, p.called) == 0 else set()
         p.furiten = any(p.river_counts[w] for w in waits)
@@ -431,10 +448,8 @@ class Game:
                 p.meld_red += 1
             p.melds.append(Meld("minkan", tile))
             self.kan_count += 1
-            self.dora_indicators.append(self.dead[len(self.dora_indicators) * 2][0])
-            t, red = self.dead.pop()
-            if self.live:
-                self.dead.insert(0, self.live.pop())
+            self.dora_indicators.append(self.dead[DORA_POS[len(self.dora_indicators)]][0])
+            t, red = self.draw_rinshan()
             p.hand[t] += 1
             if red:
                 p.red.add(t)
@@ -460,9 +475,12 @@ class Game:
                 return None, res
             return (nxt if nxt is not None else (seat + 1) % 4), None
 
-        tile2, riichi = self.ai[seat].discard(self.view(seat))
-        if p.hand[tile2] == 0:
-            tile2 = next(x for x in range(NUM_TILES) if p.hand[x])
+        # 現物喰い替えの禁止: 鳴いた牌そのものは切れない
+        forbidden = frozenset({tile})
+        tile2, riichi = self.ai[seat].discard(self.view(seat), forbidden)
+        if p.hand[tile2] == 0 or tile2 in forbidden:
+            alts = [x for x in range(NUM_TILES) if p.hand[x] and x not in forbidden]
+            tile2 = alts[0] if alts else next(x for x in range(NUM_TILES) if p.hand[x])
         self.discard(seat, tile2)
         nxt, res = self.after_discard(seat, tile2)
         if res:
@@ -511,7 +529,7 @@ class Game:
 
     def _ura_in(self, hand, p):
         n = 0
-        for ind in self.ura_indicators[: len(self.dora_indicators)]:
+        for ind in self.ura_indicators:
             d = dora_from_indicator(ind)
             n += hand[d]
             for m in p.melds:
