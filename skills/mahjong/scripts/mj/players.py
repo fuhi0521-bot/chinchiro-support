@@ -63,6 +63,12 @@ class Style:
     # 河から当たり牌を推定するか。現物・スジに加えて「早切りの周辺は安全」を使う。
     # 安全の根拠がある牌なら無筋でも切り、根拠が無ければスジでも避ける。
     river_read: bool = False
+    # 全員に載せる共通の土台。手役と形の質を見る
+    #   - 2段目の受け入れ（その受け入れが良い形に繋がるか）
+    #   - 待ち取り（テンパイの待ちの質）
+    #   - 平和・タンヤオへの寄せ
+    #   - 相手の打点読み（放銃したときの失点で危険度を重み付け）
+    shape_aware: bool = True
     # 鳴いて染めに向かう最低枚数（その色＋字牌）。大きいほど選択的。
     # 2000半荘の実験で 11 が最良だった（9だと雑に染めて順位が下がる）
     honitsu_min: int = 11
@@ -278,6 +284,26 @@ class Player:
     def _any_tile(self, me):
         return next(t for t in range(NUM_TILES) if me.hand[t])
 
+    def _threat_value(self, view, p) -> float:
+        """その相手に放銃したときの想定失点。
+
+        以前は「親なら1.5倍」しか見ていなかった。実際には副露の中身と
+        ドラの位置で打点は大きく変わるので、そこを読む。
+        """
+        v = 5200.0 if p.riichi else 3300.0
+        dora = view.dora_tiles()
+        for m in p.melds:
+            for x in m.tiles:
+                if x in dora:
+                    v += 1300
+                if x in DRAGONS or x == view.game.seat_wind(p.seat) or x == view.round_wind:
+                    v += 700
+        if p.riichi:
+            v += 1200  # 裏ドラ・一発の期待
+        if p.seat == view.game.dealer:
+            v *= 1.5
+        return v
+
     def _risk_of(self, view, tile, threats, seen):
         """その牌を切ったときの放銃リスク。相手ごとのテンパイ確率で重み付けする。
 
@@ -286,7 +312,11 @@ class Player:
         """
         total = 0.0
         for p, level in threats:
-            weight = 1.5 if p.seat == view.game.dealer else 1.0
+            if self.style.shape_aware:
+                # 想定失点で重み付けする（5200点を1.0とする）
+                weight = self._threat_value(view, p) / 5200.0
+            else:
+                weight = 1.5 if p.seat == view.game.dealer else 1.0
             if self.style.river_read:
                 r = reading.wait_risk(p, tile, seen)
             else:
@@ -354,15 +384,25 @@ class Player:
             base_shanten = best_s
         keep = [t for t, s in options if s == best_s]
 
-        scored = []
+        # まず受け入れを数える。2段目の先読みは重いので、上位の候補にだけ掛ける
+        widths = []
         for t in keep:
             hand[t] -= 1
             _, acc = fast.ukeire(hand, me.called, seen)
-            width = sum(n for _, n in acc)
-            kinds = len(acc)
             hand[t] += 1
+            widths.append((sum(n for _, n in acc), len(acc), t, acc))
+        widths.sort(reverse=True)
+        deep = {w[2] for w in widths[: self.LOOKAHEAD_CANDIDATES]}
 
+        scored = []
+        for width, kinds, t, acc in widths:
             score = width * 1.0 + kinds * 0.5
+            if self.style.shape_aware:
+                hand[t] -= 1
+                score += self._shape_bonus(
+                    view, hand, t, best_s, acc, seen, len(keep), deep=t in deep
+                )
+                hand[t] += 1
 
             # 打点: ドラ・赤を切るのは損
             if t in view.dora_tiles():
@@ -372,7 +412,12 @@ class Player:
             # 役牌の対子は残す価値
             if t in DRAGONS or t == view.seat_wind or t == view.round_wind:
                 if me.hand[t] >= 2:
-                    score -= 5 * self.style.value_weight
+                    keep_value = 5.0
+                    if self.style.shape_aware and me.menzen and best_s <= 1:
+                        # 平和になりそうな手では、役牌の雀頭は邪魔になる
+                        if not any(me.hand[x] >= 3 for x in range(NUM_TILES)):
+                            keep_value = 1.5
+                    score -= keep_value * self.style.value_weight
             # 門前でも色が寄っていれば染め手に向かう（混一色は門前3翻）
             if chase_suit is not None and t < HONOR and t // 9 != chase_suit:
                 score += 10
@@ -399,6 +444,70 @@ class Player:
         if tenpai and me.menzen and not me.riichi:
             declare = self._want_riichi(view, tile)
         return tile, declare
+
+    # ---------------------------------------------------- 形の質を見る
+
+    LOOKAHEAD_CANDIDATES = 4  # 2段目を調べる打牌候補の数
+    LOOKAHEAD_ACCEPTS = 6     # 1候補あたり調べる受け入れ牌の数
+
+    def _shape_bonus(self, view, hand, tile, shanten, acc, seen, n_candidates, deep=True) -> float:
+        """受け入れ枚数だけでは見えない「形の良さ」を点数にする。
+
+        1. テンパイなら **待ち取り** — 待ちの枚数と、平和が付きそうかを見る
+        2. 1シャンテンなら **2段目の受け入れ** — その受け入れが良いテンパイに
+           繋がるかを見る。枚数が同じでも、両面テンパイになる受け入れと
+           嵌張テンパイになる受け入れでは価値が違う
+        3. 門前の **タンヤオ・平和** への寄せ
+        """
+        me = view.me
+        bonus = 0.0
+
+        if shanten == 0:
+            # --- 待ち取り ---
+            width = sum(n for _, n in acc)
+            bonus += width * 2.0  # テンパイの待ちは1シャンテンの受け入れより重い
+            # 平和が付きそうか（門前・刻子なし・雀頭が役牌でない・待ちが広い）
+            if me.menzen and width >= 6:
+                has_triplet = any(hand[x] >= 3 for x in range(NUM_TILES))
+                yakuhai_pair = any(
+                    hand[x] == 2
+                    for x in list(DRAGONS) + [view.seat_wind, view.round_wind]
+                )
+                if not has_triplet and not yakuhai_pair:
+                    bonus += 8.0 * self.style.value_weight
+            if width <= 2:
+                bonus -= 10.0  # 待ちが枯れている。取り直したい
+
+        elif shanten == 1 and n_candidates > 1 and deep:
+            # --- 2段目の受け入れ（限定的な先読み） ---
+            # 候補が1つしかないなら比べる意味がないので飛ばす
+            total = 0
+            weight = 0
+            for u, left in sorted(acc, key=lambda x: -x[1])[: self.LOOKAHEAD_ACCEPTS]:
+                hand[u] += 1
+                best = -1
+                for d in range(NUM_TILES):
+                    if not hand[d]:
+                        continue
+                    hand[d] -= 1
+                    if fast.shanten(hand, me.called) == 0:
+                        w = sum(n for _, n in fast.ukeire(hand, me.called, seen)[1])
+                        if w > best:
+                            best = w
+                    hand[d] += 1
+                hand[u] -= 1
+                if best >= 0:
+                    total += best * left
+                    weight += left
+            if weight:
+                bonus += (total / weight) * 0.8  # 平均の待ち枚数
+
+        # --- 門前の手役への寄せ ---
+        if me.menzen and shanten <= 2:
+            yaochu = sum(hand[x] for x in YAOCHU_SET)
+            if yaochu <= 2 and tile in YAOCHU_SET:
+                bonus += 4.0 * self.style.value_weight  # タンヤオが見える
+        return bonus
 
     def _want_riichi(self, view, discard) -> bool:
         me = view.me
@@ -846,6 +955,35 @@ def make_fifth() -> "Player":
             river_read=True,
         ),
     )
+
+
+def make_shape_lab() -> list:
+    """「形の質を見る」層が効くかを 2対2 で測る。ベース戦術は共通。
+
+    形を見る = 2段目の受け入れ / 待ち取り / 平和・タンヤオへの寄せ /
+               相手の打点読み
+    枚数だけ = 受け入れ枚数と種類だけで打牌を決める（従来）
+    """
+    base = dict(
+        push=0.42,
+        call_min_value=1500,
+        call_max_shanten=3,
+        damaten_value=8000,
+        riichi_bad_wait_cheap=True,
+        safety_weight=1.0,
+        value_weight=1.0,
+        last_place_desperation=0.15,
+        reading="tedashi",
+        river_read=True,
+        awareness="allast",
+        allast_conditions=True,
+    )
+    return [
+        Player("形を見るA", Style(**base, shape_aware=True)),
+        Player("枚数だけA", Style(**base, shape_aware=False)),
+        Player("形を見るB", Style(**base, shape_aware=True)),
+        Player("枚数だけB", Style(**base, shape_aware=False)),
+    ]
 
 
 def make_players(awareness: str = "none", think: bool = True, **knobs) -> list:
