@@ -81,6 +81,9 @@ class Style:
     # 2シャンテン以遠でもブロックの質（良形か愚形か）を見るか。
     # 受け入れ枚数だけだと、愚形3つの手と良形2つの手が同じ点になる。
     deep_shape: bool = False
+    # 押すと決めても、安全牌を1枚だけ手元に残すか。
+    # 最後の1枚を切ってしまうと、次巡で降りたくなったときに降りられない。
+    keep_safe: bool = False
 
 
 def value_band(points: int) -> str:
@@ -415,6 +418,16 @@ class Player:
         widths.sort(reverse=True)
         deep = {w[2] for w in widths[: self.LOOKAHEAD_CANDIDATES]}
 
+        # 手の中の「いま安全な牌」。押すと決めても1枚は残しておきたい。
+        # 枚数で数える。現物を2枚持っているなら1枚は切っていい
+        safe_now = set()
+        safe_copies = 0
+        if threats and self.style.keep_safe:
+            for t, _s in options:
+                if all(p.river_counts[t] or t in p.passed for p, _ in threats):
+                    safe_now.add(t)
+                    safe_copies += hand[t]
+
         scored = []
         for width, kinds, t, acc in widths:
             score = width * 1.0 + kinds * 0.5
@@ -457,6 +470,9 @@ class Player:
             if threats:
                 risk = self._risk_of(view, t, threats, seen_all)
                 score -= risk * 2.2 * self.style.safety_weight
+                if self.style.keep_safe and t in safe_now and safe_copies == 1:
+                    # 最後の1枚の安全牌。切ってしまうと次巡に降りられない
+                    score -= 6.0
             scored.append((score, t))
         scored.sort(reverse=True)
         tile = scored[0][1]
