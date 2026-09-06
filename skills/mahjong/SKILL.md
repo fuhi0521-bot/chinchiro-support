@@ -21,6 +21,7 @@ description: "麻雀（日本リーチ麻雀）の専用エージェント。何
 | 「この役つく？」「〜って何」 | 役・用語の照会 | `references/yaku.md` `references/glossary.md` |
 | 「オーラス、条件は？」 | § 着順条件 | `references/placement.md` |
 | 「今日の対局を振り返って」 | § 振り返り | `references/training.md` |
+| 「問題を出して」「練習したい」 | `mj.py drill` | `references/training.md` |
 | 「テンパイしてる？」（河読み） | § 読み | `references/reading.md` |
 | 「この待ち、山に残ってる？」 | § 読み | `references/wall-reading.md` |
 
@@ -45,7 +46,13 @@ python3 $S score   234m567m234p678p11s --win 2m --tsumo --riichi --dora 1 --fu-d
 python3 $S danger  --river "123m9p東南白" --tiles "456789m5p3s発"   # 危険度の序列
 python3 $S points  --han 3 --fu 40             # 翻符から点数
 python3 $S noten   --tenpai 2                  # ノーテン罰符
+python3 $S drill --kind discard -n 5 --seed 1  # 練習問題（--answers で答え）
 ```
+
+`drill` は **実際の対局から拾った局面**を出す。`--kind` は
+`discard`（牌効率）/ `danger`（押し引き）/ `tenpai`（河読み）/ `wall`（山読み）。
+`danger` と `tenpai` の答えには **相手の実際の待ち・シャンテン** が出る。
+実戦では答え合わせできない部分なので、練習の価値が高い。
 
 エンジンが出すのは**数字だけ**。場況・着順・押し引きの結論は自分で言う。
 

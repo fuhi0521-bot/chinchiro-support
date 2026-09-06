@@ -60,11 +60,43 @@
 
 雀聖層の目安は Mortal で **一致率 53〜55%、悪手率 8〜9%**。
 
+## 出題器 — 自分で反復する
+
+`mj.py drill` が **実際の対局から拾った局面**で問題を出す。
+答えは別コマンドなので、先に問題だけ見て考えられる。
+`--seed` が同じなら同じ問題が出るので、間に時間を置いて再挑戦できる。
+
+```bash
+# 何切る（受け入れが割れる局面だけを選んで出す）
+python3 skills/mahjong/scripts/mj.py drill --kind discard -n 5 --seed 1
+python3 skills/mahjong/scripts/mj.py drill --kind discard -n 5 --seed 1 --answers
+
+# リーチ者への打牌。どれが一番安全か（答えには実際の待ちも出る）
+python3 skills/mahjong/scripts/mj.py drill --kind danger -n 5 --seed 1
+
+# 相手はテンパイしているか（鳴いている相手を主に出す）
+python3 skills/mahjong/scripts/mj.py drill --kind tenpai -n 5 --seed 1
+
+# 山読み。見えている枚数が同じ牌のうち、山に濃いのはどれか
+python3 skills/mahjong/scripts/mj.py drill --kind wall -n 5 --seed 1
+```
+
+| 種類 | 鍛えられるもの | 答えの根拠 |
+|---|---|---|
+| `discard` | 牌効率 | 受け入れ枚数（機械的に決まる） |
+| `danger` | 押し引き・危険度 | 相手の**実際の待ち**が出る |
+| `tenpai` | 河読み | 相手の**実際のシャンテン**が出る |
+| `wall` | 山読み | 山の**実際の中身**が出る |
+
+`danger` と `tenpai` は、シミュレータだから答えが分かる問題。
+実戦では絶対に答え合わせできないので、**ここでしか練習できない**。
+
 ## 練習メニュー
 
 ### 毎日（10分）
 
-- **何切る 5問**。`mj.py discard` で受け入れを確認してから答え合わせ
+- **`drill --kind discard -n 5`**。受け入れ最大を当てる
+- **`drill --kind tenpai -n 3`**。鳴いている相手のテンパイを当てる
 - 前日の対局から **1局だけ** 振り返る
 
 ### 毎週（30分）

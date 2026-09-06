@@ -625,6 +625,24 @@ def test_passed_after_riichi_is_safe():
     assert checked > 0, "リーチ後に通った牌が1枚も記録されていない"
 
 
+def test_drill_generates_solvable_problems():
+    """出題器が、答えの付いた問題を作れること。
+
+    同じ seed なら同じ問題が出ること（出題と答え合わせを別コマンドで
+    呼べるようにしてあるので、ここがずれると答えが噛み合わなくなる）も見る。
+    """
+    from mj.drill import KINDS, run
+
+    for kind in KINDS:
+        a = run(kind, 2, seed=4, answers=False)
+        b = run(kind, 2, seed=4, answers=False)
+        assert a == b, f"{kind}: seed が同じなのに問題が変わった"
+        ans = run(kind, 2, seed=4, answers=True)
+        assert "作れませんでした" not in a, kind
+        assert "[1]" in a and "[1]" in ans, kind
+        assert "[2]" in a and "[2]" in ans, kind
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

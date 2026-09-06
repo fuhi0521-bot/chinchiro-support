@@ -7,6 +7,7 @@
     mj.py danger   --river ... --tiles ...  危険度の序列
     mj.py points   --han 3 --fu 40     点数表引き
     mj.py noten    --tenpai 2          ノーテン罰符
+    mj.py drill    --kind discard      練習問題（打ち手の反復練習用）
 """
 
 from __future__ import annotations
@@ -41,6 +42,12 @@ def _wind(text: str) -> int:
 
 def _counts(text: str):
     return parse_counts(text)
+
+
+def cmd_drill(args) -> None:
+    from .drill import run
+
+    print(run(args.kind, args.n, args.seed, args.answers))
 
 
 def cmd_shanten(args) -> None:
@@ -274,6 +281,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--seed", type=int, default=1)
     s.add_argument("--workers", "-j", type=int, default=0)
     s.set_defaults(func=cmd_yaku)
+
+    s = sub.add_parser("drill", help="練習問題を出す（打ち手の反復練習用）")
+    s.add_argument("--kind", "-k", default="discard",
+                   choices=["discard", "danger", "tenpai", "wall"],
+                   help="discard=何切る / danger=どれが安全 / tenpai=テンパイ読み / wall=山読み")
+    s.add_argument("-n", type=int, default=5, help="問題数")
+    s.add_argument("--seed", type=int, default=1, help="同じ seed なら同じ問題が出る")
+    s.add_argument("--answers", action="store_true", help="答えを出す")
+    s.set_defaults(func=cmd_drill)
 
     s = sub.add_parser("noten", help="ノーテン罰符")
     s.add_argument("--tenpai", type=int, required=True, help="テンパイ者の人数 0-4")
