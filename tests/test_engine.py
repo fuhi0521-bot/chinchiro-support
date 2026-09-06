@@ -498,8 +498,12 @@ def test_honitsu_is_pursued():
     ここでは閾値を 9 に緩めて、実際に混一色が出るようになったことを確認する。
 
     既定の閾値は 11（実験で 9 は雑に染めすぎて成績が落ちたため）。
-    その設定では混一色はほとんど出ない。これは既知の未解決点で、
-    `results/experiment-honitsu.md` に記録してある。
+
+    また shape_aware（形の質を見る層）を入れると染め手はさらに減る。
+    テンパイの待ち幅ボーナス（最大24点）が染め手ボーナス（+10）を
+    上回るため、効率を優先して染めをやめる。実測で 3.4% → 0.9%。
+    順位には悪影響が無い（かなめが1位）ので挙動としては許容しているが、
+    ここでは **染め手判定の仕組みそのもの** を見たいので shape_aware を切る。
     """
     import collections as _c
     import random as _r
@@ -513,6 +517,7 @@ def test_honitsu_is_pursued():
         for p in ai:
             p.style.chase_honitsu = chase
             p.style.honitsu_min = minimum
+            p.style.shape_aware = False  # 染め手判定だけを取り出して見る
         rng = _r.Random(77)
         yaku = _c.Counter()
         for k in range(120):
