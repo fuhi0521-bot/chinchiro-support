@@ -488,7 +488,15 @@ def test_red_dora_count():
 
 
 def test_honitsu_is_pursued():
-    """染め手を狙う設定で、実際に混一色が出ること。"""
+    """染め手の判定が働くこと。
+
+    以前は「手牌が既に1色」を要求していたため、染めかけの手を一生拾えなかった。
+    ここでは閾値を 9 に緩めて、実際に混一色が出るようになったことを確認する。
+
+    既定の閾値は 11（実験で 9 は雑に染めすぎて成績が落ちたため）。
+    その設定では混一色はほとんど出ない。これは既知の未解決点で、
+    `results/experiment-honitsu.md` に記録してある。
+    """
     import collections as _c
     import random as _r
 
@@ -496,22 +504,21 @@ def test_honitsu_is_pursued():
     from mj.players import make_players
 
     counts = {}
-    for chase in (False, True):
+    for chase, minimum in ((False, 9), (True, 9)):
         ai = make_players()
         for p in ai:
             p.style.chase_honitsu = chase
+            p.style.honitsu_min = minimum
         rng = _r.Random(77)
         yaku = _c.Counter()
-        wins = 0
-        for k in range(60):
+        for k in range(120):
             res = Game(ai, [25000] * 4, 27 + (k // 4) % 2, k % 4, 0, 0, rng).play()
             for _s, _p, _h, _f, ys in res.winners:
-                wins += 1
                 for y in ys:
                     yaku[y] += 1
-        counts[chase] = (yaku["混一色"] + yaku["清一色"], wins)
-    off, on = counts[False], counts[True]
-    assert on[0] > off[0], (off, on)
+        counts[chase] = yaku["混一色"] + yaku["清一色"]
+    assert counts[True] > counts[False], counts
+    assert counts[True] >= 3, counts
 
 
 if __name__ == "__main__":
