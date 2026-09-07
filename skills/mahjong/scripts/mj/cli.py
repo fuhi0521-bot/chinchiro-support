@@ -8,6 +8,7 @@
     mj.py points   --han 3 --fu 40     点数表引き
     mj.py noten    --tenpai 2          ノーテン罰符
     mj.py drill    --kind discard      練習問題（打ち手の反復練習用）
+    mj.py review   <手牌> --river ...  1局面をまとめて診断（振り返り用）
 """
 
 from __future__ import annotations
@@ -42,6 +43,27 @@ def _wind(text: str) -> int:
 
 def _counts(text: str):
     return parse_counts(text)
+
+
+def cmd_review(args) -> None:
+    from .review import review
+    from .tiles import parse_tiles
+
+    counts, _ = _counts(args.hand)
+    melds = parse_melds(args.melds)
+    visible = _counts(args.visible)[0] if args.visible else None
+    dora = parse_tiles(args.dora)[0] if args.dora else []
+    river = parse_tiles(args.river)[0] if args.river else None
+    scores = None
+    if args.scores:
+        scores = [int(x) for x in args.scores.replace(",", " ").split()]
+        if len(scores) != 4:
+            raise TileError("点数は4人ぶん指定してください")
+    print(review(
+        counts, len(melds), visible=visible, dora_indicators=dora,
+        turn=args.turn or None, river=river, scores=scores,
+        me=args.me, dealer=args.dealer, honba=args.honba, sticks=args.sticks,
+    ))
 
 
 def cmd_drill(args) -> None:
@@ -281,6 +303,20 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--seed", type=int, default=1)
     s.add_argument("--workers", "-j", type=int, default=0)
     s.set_defaults(func=cmd_yaku)
+
+    s = sub.add_parser("review", help="1つの局面を、道具ぜんぶで診断する")
+    s.add_argument("hand", help="手牌13枚か14枚")
+    s.add_argument("--melds", "-m", default="", help="副露 例: chi=234p,pon=白")
+    s.add_argument("--visible", "-v", default="", help="場に見えている牌ぜんぶ（河・副露・ドラ表示）")
+    s.add_argument("--dora", default="", help="ドラ表示牌")
+    s.add_argument("--turn", type=int, default=0, help="巡目")
+    s.add_argument("--river", default="", help="警戒する相手の河（リーチ後に通った牌も足す）")
+    s.add_argument("--scores", default="", help="4人の点数 例: 24000,25000,25500,25500")
+    s.add_argument("--me", type=int, default=0, help="自分の席 0-3")
+    s.add_argument("--dealer", "-d", type=int, default=3, help="親の席 0-3")
+    s.add_argument("--honba", type=int, default=0)
+    s.add_argument("--sticks", type=int, default=0)
+    s.set_defaults(func=cmd_review)
 
     s = sub.add_parser("drill", help="練習問題を出す（打ち手の反復練習用）")
     s.add_argument("--kind", "-k", default="discard",

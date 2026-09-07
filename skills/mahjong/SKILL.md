@@ -20,7 +20,7 @@ description: "麻雀（日本リーチ麻雀）の専用エージェント。何
 | 「この手いくら？」「符は？」 | エンジンで計算 | `references/scoring.md` |
 | 「この役つく？」「〜って何」 | 役・用語の照会 | `references/yaku.md` `references/glossary.md` |
 | 「オーラス、条件は？」 | § 着順条件 | `references/placement.md` |
-| 「今日の対局を振り返って」 | § 振り返り | `references/training.md` |
+| 「今日の対局を振り返って」 | `mj.py review` → § 振り返り | `references/training.md` |
 | 「問題を出して」「練習したい」 | `mj.py drill` | `references/training.md` |
 | 「テンパイしてる？」（河読み） | § 読み | `references/reading.md` |
 | 「この待ち、山に残ってる？」 | § 読み | `references/wall-reading.md` |
@@ -47,7 +47,13 @@ python3 $S danger  --river "123m9p東南白" --tiles "456789m5p3s発"   # 危険
 python3 $S points  --han 3 --fu 40             # 翻符から点数
 python3 $S noten   --tenpai 2                  # ノーテン罰符
 python3 $S drill --kind discard -n 5 --seed 1  # 練習問題（--answers で答え）
+python3 $S review 3456778m234p55s99s --dora 3s --turn 8 \
+   --river "1m9p東南5s7m" --visible "..." --scores 24000,25000,25500,25500 --me 0
 ```
+
+`review` は1つの局面を **モード1の順番**（結論 → 形 → 場況 → 着順 → 次点との差）で
+まとめて出す。牌譜を読み込む機能は無いので、
+**自分の対局を振り返るときはここに局面を入れる**。
 
 `drill` は **実際の対局から拾った局面**を出す。`--kind` は
 `discard`（牌効率）/ `danger`（押し引き）/ `tenpai`（河読み）/ `wall`（山読み）。

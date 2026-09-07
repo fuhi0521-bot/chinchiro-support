@@ -643,6 +643,44 @@ def test_drill_generates_solvable_problems():
         assert "[2]" in a and "[2]" in ans, kind
 
 
+def test_review_command():
+    """局面まとめ診断が、道具の出力と食い違わないこと。
+
+    review は discard / wait / danger / placement を並べ直しているだけなので、
+    それぞれの単体と同じ答えになっていなければならない。
+    """
+    from mj.efficiency import discard_options, waits
+    from mj.review import review
+    from mj.tiles import counts_str, parse_counts, parse_tiles, tile_str
+
+    hand, _ = parse_counts("3456778m234p5599s")
+    vis, _ = parse_counts("1m9p東南5s7m2p3p3s")
+    river, _ = parse_tiles("1m9p東南5s7m")
+    txt = review(list(hand), 0, visible=list(vis),
+                 dora_indicators=parse_tiles("3s")[0], turn=8, river=river,
+                 scores=[24000, 25000, 25500, 25500], me=0, dealer=3)
+
+    top = discard_options(list(hand), 0, list(vis))[0]
+    assert f"打{tile_str(top.tile)}" in txt, txt
+
+    # テンパイなら待ちが全部出ていること。枚数は「実質の残り」であること
+    work = list(hand)
+    work[top.tile] -= 1
+    for t, n in waits(work, 0, list(vis)):
+        assert f"{tile_str(t)}  残り{n}枚" in txt, (tile_str(t), n, txt)
+
+    # 現物が安全な順の先頭に来ていること
+    assert "現物" in txt
+    # 着順条件が出ていること
+    assert "着順状況" in txt and "4着 ←自分" in txt
+
+    # シャンテンが戻る打牌を枚数で比べない
+    hand2, _ = parse_counts("3468m22345p34688s")
+    txt2 = review(list(hand2), 0, turn=5)
+    assert "ほぼ互角" in txt2, txt2
+    assert "枚 (+" in txt2 or "枚 (-" in txt2 or "(+0)" in txt2, txt2
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
