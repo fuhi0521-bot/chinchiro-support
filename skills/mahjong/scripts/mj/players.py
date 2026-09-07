@@ -631,8 +631,15 @@ class Player:
             if decided is not None:
                 return decided
 
-        # ダマのままで十分高い
-        if value - (1300 if view.is_dealer else 1000) >= st.damaten_value and width <= 4:
+        # ダマのままで十分高い（悪形なら曲げずに出アガリを狙う）
+        #
+        # ここは **ダマのままの打点** で比べないといけない。
+        # 以前は estimate_value(view) を使っていて、これはリーチ・一発・裏ドラの
+        # 期待上乗せ（+2翻）を含んでいた。つまり「リーチしたときの打点」を
+        # 「リーチしない基準」と比べていた。
+        # そのせいで ゆみこ（damaten_value=5200）は **ダマ1950点の手を
+        # 「打点十分」と判定してダマにしていた**（400局で25回）。
+        if self.estimate_value(view, dama=True) >= st.damaten_value and width <= 4:
             return False
         # 悪形・安手・終盤
         if not st.riichi_bad_wait_cheap and width <= 4 and value < 5200 and view.turn >= 12:
