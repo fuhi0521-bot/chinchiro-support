@@ -39,22 +39,39 @@ def winning_tiles(p) -> set:
     return out
 
 
-# 「枚数を見ない」旧モデル。同じ局面で新旧を比べるために使う
-OLD_SEEN = (1.0, 1.0, 1.0, 1.0)
-OLD_HONOR_SEEN = (1.0, 0.5, 0.5, 0.5)
+# 河読みを部品ごとに切って、同じ局面で当たり具合を比べる。
+# すべて「その部品だけを外す」形にしてあるので、差分がその部品の貢献になる。
+KNOBS = ("SEEN_FACTOR", "HONOR_SEEN_FACTOR", "USE_PASSED",
+         "EARLY_FACTOR", "SUJI_FACTOR", "HALF_SUJI_FACTOR")
+
+ABLATIONS = {
+    "現行（全部入り）": {},
+    "枚数を見ない": dict(SEEN_FACTOR=(1.0,) * 4,
+                    HONOR_SEEN_FACTOR=(1.0, 0.5, 0.5, 0.5)),
+    "通った牌を見ない": dict(USE_PASSED=False),
+    "早切りの周辺を見ない": dict(EARLY_FACTOR={}),
+    "スジを見ない": dict(SUJI_FACTOR=1.0, HALF_SUJI_FACTOR=1.0),
+    "牌の位置だけ": dict(SEEN_FACTOR=(1.0,) * 4,
+                   HONOR_SEEN_FACTOR=(1.0, 0.5, 0.5, 0.5),
+                   USE_PASSED=False, EARLY_FACTOR={},
+                   SUJI_FACTOR=1.0, HALF_SUJI_FACTOR=1.0),
+}
 
 
-def _old_risk(p, t, seen, mine):
-    sf, hf = reading.SEEN_FACTOR, reading.HONOR_SEEN_FACTOR
-    reading.SEEN_FACTOR, reading.HONOR_SEEN_FACTOR = OLD_SEEN, OLD_HONOR_SEEN
+def _variant_risk(over, p, t, seen, mine):
+    saved = {k: getattr(reading, k) for k in KNOBS}
+    for k, v in over.items():
+        setattr(reading, k, v)
     try:
         return reading.wait_risk(p, t, seen, mine)
     finally:
-        reading.SEEN_FACTOR, reading.HONOR_SEEN_FACTOR = sf, hf
+        for k, v in saved.items():
+            setattr(reading, k, v)
 
 
 def collect(games: int, seed: int, min_turn: int = 6):
     rows = []
+    tenpai_rows = []
     orig = pl.Player.discard
 
     def hook(self, view, forbidden=frozenset()):
@@ -62,6 +79,10 @@ def collect(games: int, seed: int, min_turn: int = 6):
             me = view.me
             seen = view.seen_all()
             for p in view.others:
+                if not p.riichi:
+                    tenpai_rows.append(
+                        (reading.tenpai_probability(p, view.turn),
+                         fast.shanten(p.hand, p.called) == 0))
                 if fast.shanten(p.hand, p.called) != 0:
                     continue
                 win = winning_tiles(p)
@@ -76,7 +97,8 @@ def collect(games: int, seed: int, min_turn: int = 6):
                         continue
                     elsewhere = seen[t] - me.hand[t] - p.river_counts[t]
                     rows.append((risk, t in win, min(3, max(0, elsewhere)), t,
-                                 _old_risk(p, t, seen, me.hand)))
+                                 tuple(_variant_risk(o, p, t, seen, me.hand)
+                                       for o in ABLATIONS.values())))
         return orig(self, view, forbidden)
 
     pl.Player.discard = hook
@@ -89,7 +111,7 @@ def collect(games: int, seed: int, min_turn: int = 6):
                 print(f"  {k + 1}/{games} 局", flush=True)
     finally:
         pl.Player.discard = orig
-    return rows
+    return rows, tenpai_rows
 
 
 def auc(rows) -> float:
@@ -117,11 +139,32 @@ def main():
     ap.add_argument("--seed", type=int, default=13)
     a = ap.parse_args()
 
-    rows = collect(a.games, a.seed)
+    rows, tenpai_rows = collect(a.games, a.seed)
     hit = sum(1 for r in rows if r[1])
     print(f"\n標本 {len(rows)} 件 / 当たり牌 {hit} 件 ({hit / len(rows) * 100:.2f}%)")
-    old = [(r[4], r[1]) for r in rows]
-    print(f"AUC  枚数を見る {auc(rows):.4f}  /  見ない(旧) {auc(old):.4f}\n")
+    print("■ 当たり牌読み（wait_risk）— 部品を1つずつ外して比べる")
+    print(f"  {'条件':<22} {'AUC':>8} {'現行との差':>10}")
+    base = None
+    for i, label in enumerate(ABLATIONS):
+        v = auc([(r[4][i], r[1]) for r in rows])
+        if base is None:
+            base = v
+        print(f"  {label:<22} {v:>8.4f} {v - base:>+10.4f}")
+
+    if tenpai_rows:
+        t_auc = auc([(p, y) for p, y in tenpai_rows])
+        hit_t = sum(1 for _, y in tenpai_rows if y)
+        print(f"\n■ テンパイ読み（tenpai_probability）")
+        print(f"  標本 {len(tenpai_rows)} 件 / テンパイ {hit_t / len(tenpai_rows) * 100:.1f}%"
+              f"  AUC {t_auc:.4f}")
+        print(f"  {'予測(%)':>10} {'標本':>8} {'実測(%)':>9}")
+        for lo, hi in ((0, 5), (5, 15), (15, 30), (30, 50), (50, 70), (70, 101)):
+            sub = [x for x in tenpai_rows if lo <= x[0] * 100 < hi]
+            if len(sub) < 50:
+                continue
+            print(f"  {lo:>4}-{hi:<5} {len(sub):>8} "
+                  f"{sum(1 for _, y in sub if y) / len(sub) * 100:>8.1f}")
+    print()
 
     print("  予測の帯ごとの実測")
     print(f"  {'予測(%)':>10} {'標本':>8} {'実測(%)':>9}")

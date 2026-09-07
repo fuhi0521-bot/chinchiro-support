@@ -263,6 +263,10 @@ EARLY_TURNS = 6  # 「早切り」とみなす巡目
 #
 # 係数は平均が変わらないように正規化してある（押し引きの閾値を動かさないため）。
 SEEN_FACTOR = (1.12, 0.84, 0.63, 0.49)
+
+# 「リーチ後に他家が切って通った牌」を現物として扱うか。
+# 実装漏れを直したときに入れた。切れるのは検証（risk_fit.py --ablate）のときだけ。
+USE_PASSED = True
 HONOR_SEEN_FACTOR = (1.00, 0.20, 0.10, 0.10)
 
 
@@ -281,7 +285,7 @@ def wait_risk(player, tile: int, seen=None, mine=None) -> float:
     """
     from .tiles import HONOR
 
-    if player.river_counts[tile] or tile in player.passed:
+    if player.river_counts[tile] or (USE_PASSED and tile in player.passed):
         # 本人が切った牌（現物）と、リーチ後に他家が切って通った牌。
         # どちらも当たらない。後者は見落とされやすいが、局が進むほど枚数が増える
         return GENBUTSU_RISK
