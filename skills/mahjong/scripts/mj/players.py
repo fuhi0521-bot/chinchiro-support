@@ -1190,17 +1190,21 @@ def make_wall_lab() -> list:
 
 
 def make_kaname_lab() -> list:
-    """かなめを1つずつ動かして、ゆうだいとの差(-0.027)を埋められるか見る。
+    """ダマの基準を、直したあとの意味で測り直す。
 
-    10000半荘で計測できた差は3つだけだった:
-      平均和了打点 -187点 / 立直率 -1.7pt / 押しの閾値 0.30 vs 0.24
+    ダマ判断は長らく **リーチ込みの打点** で比べていた（バグ）。
+    そのせいで damaten_value は「実質どこでダマ分岐を無効化するか」の
+    つまみになっていて、6000半荘で 12000 が勝ったのも
+    「バグった分岐を切っていただけ」の可能性がある。
 
-    土台は「かなめ + 形深く」。形深くは 4500半荘で4本中いちばん良かった
-    （2.486 / 土台 2.505）が有意ではないので、全員に載せて土俵を揃える。
+    直したいま、damaten_value は素直に
+    「**ダマのままで◯点以上あるなら曲げない**」を意味する。
+    その意味で測り直す。
 
-    山読み(wall_read)は載せない。4500半荘で **和了率が 0.33pt 下がった**。
-    山に濃い牌は「誰も持っていない牌」なので、待っても出てこない。
-    ツモには強いが、和了の6割は出和了りなので差し引きで損になる。
+      12000 … ダマ12000点＋悪形はまず起きない。事実上つねに即リー
+       8000 … 満貫級のダマだけ受ける
+       5200 … 3900〜5200のダマも受ける
+       3900 … かなり広くダマにする
     """
     base = dict(
         awareness="allast",
@@ -1216,15 +1220,14 @@ def make_kaname_lab() -> list:
         call_min_value=1500,
         call_max_shanten=3,
         push=0.30,
-        value_weight=1.2,
-        damaten_value=8000,
+        value_weight=1.4,
         deep_shape=True,
     )
     return [
-        Player("かなめ基準", Style(**base)),
-        Player("かなめ打点", Style(**{**base, "value_weight": 1.4})),
-        Player("かなめ即リー", Style(**{**base, "damaten_value": 12000})),
-        Player("かなめ安全牌", Style(**{**base, "keep_safe": True})),
+        Player("即リー", Style(**base, damaten_value=12000)),
+        Player("ダマ8000", Style(**base, damaten_value=8000)),
+        Player("ダマ5200", Style(**base, damaten_value=5200)),
+        Player("ダマ3900", Style(**base, damaten_value=3900)),
     ]
 
 
