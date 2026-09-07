@@ -1038,6 +1038,22 @@ def make_best() -> "Player":
         危険牌を避けて受け入れを削ると、和了率の損が放銃率の得を上回る
       - 押し引きの閾値は低め。読みが正確なぶん、押せると判断したら押す
       - 鳴きは較正済みの水準。オーラスは条件計算する
+
+    10000半荘でゆうだいに 0.027 負けたあと、計測できた差
+    （平均和了打点 -187点 / 立直率 -1.7pt）を1つずつ潰した。
+    6000半荘の検証（`--lineup kaname`）での、基準との差:
+
+      即リー（damaten_value 8000 → 12000） -0.029  ← 採用
+      打点  （value_weight  1.2  → 1.4）   -0.014  ← 採用
+      安全牌（押すときも1枚残す）           +0.015  ← 不採用（和了率 -0.33pt）
+
+    どれも単独では有意ではない（標準誤差 0.024）。方向が合っていて
+    診断とも一致する2つだけを採った。
+
+    形を深く見る層（deep_shape）も載せている。4500半荘の検証で
+    4本中いちばん良かった（-0.019、有意ではない）。
+    山読み（wall_read）は載せない。和了率が 0.33pt 下がったため
+    （山に濃い牌は誰も持っていない牌なので、待っても出てこない）。
     """
     return Player(
         "かなめ",
@@ -1049,14 +1065,15 @@ def make_best() -> "Player":
             push=0.30,
             call_min_value=1500,
             call_max_shanten=3,
-            damaten_value=8000,
+            damaten_value=12000,
             riichi_bad_wait_cheap=True,
             safety_weight=0.5,
-            value_weight=1.2,
+            value_weight=1.4,
             last_place_desperation=0.18,
             reading="tedashi",
             river_read=True,
             honitsu_min=11,
+            deep_shape=True,
         ),
     )
 
