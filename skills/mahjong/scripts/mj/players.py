@@ -1189,6 +1189,33 @@ def make_wall_lab() -> list:
     ]
 
 
+def make_honitsu_field() -> list:
+    """染め手が頻繁に出る場。染め手読みの検証にだけ使う。
+
+    ふだんの場（honitsu_min=11 ＋ 形を見る層）では染め手がほとんど出ない。
+    30局で「本物の染め手のテンパイ」は3件しか取れなかった。
+    それでは染め手読みが効くかどうか測れないので、
+    **わざと染めさせる場**を作って、そこで危険度の読みを測る。
+
+    honitsu_min を 9 に緩め、形の質を見る層を切る（染め手を抑えるため）。
+    """
+    base = dict(
+        chase_honitsu=True,
+        honitsu_min=9,
+        shape_aware=False,
+        call_min_value=1000,
+        call_max_shanten=3,
+        reading="tedashi",
+        river_read=True,
+    )
+    return [
+        Player("染A", Style(**base, push=0.30, value_weight=1.2)),
+        Player("染B", Style(**base, push=0.35, value_weight=1.0)),
+        Player("染C", Style(**base, push=0.40, value_weight=1.4)),
+        Player("染D", Style(**base, push=0.45, value_weight=0.8)),
+    ]
+
+
 def make_kaname_lab() -> list:
     """ダマの基準を、直したあとの意味で測り直す。
 

@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from .tiles import HONOR as HONOR_IDX
+
 # 全体のテンパイ率（リーチ者を除く）。表に無いときの最後の受け皿
 PRIOR = 0.085
 
@@ -242,6 +244,78 @@ EARLY_FACTOR = {1: 0.56, 2: 0.66}
 
 EARLY_TURNS = 6  # 「早切り」とみなす巡目
 
+# ---------------------------------------------------------------- 手役読み
+#
+# 染め手と対々和の相手は、危険度の並びが **根本から** 変わる。
+# ここは統計ではなく構造で決まる。
+#
+#   混一色の相手は、その色と字牌でしか待てない。他の色で待つと役が消える。
+#   対々和の相手の待ちはシャンポンか単騎。両面が無いのでスジが意味を持たない。
+#
+# だから測って決めるのではなく、まず「そう打っている相手か」を見分ける。
+# 見分けが正しければ、あとは論理的に決まる。
+
+HONITSU_IN = 2.2       # 染めている色の牌
+HONITSU_HONOR = 2.6    # 字牌（単騎・シャンポンで待たれる）
+HONITSU_OUT = 0.30     # 他の色（当たらない。0にしないのは読み違いの保険）
+
+TOITOI_SUJI = 1.0      # 対々和にスジは効かない（両面待ちが無い）
+TOITOI_HONOR = 1.6     # 字牌のシャンポン・単騎が増える
+
+
+def suit_lean(player):
+    """その相手が染めている色を推定する。無ければ None。
+
+    **証拠は厳しく取る。** 弱い証拠で染め手と決めつけると、
+    危険度の並びを丸ごとひっくり返してしまうので、外したときの損が大きい。
+
+    シミュレータの正解（相手の手牌が1色＋字牌か）と突き合わせて選んだ:
+
+    | ルール | 適合率 | 再現率 |
+    |---|---|---|
+    | 2副露が1色（弱い） | 10.2% | 40.8% |
+    | 2副露が1色 + その色を1枚も切っていない | 54.5% | 19.7% |
+    | **3副露が1色** | **100.0%** | 24.3% |
+    | **採用: 3副露 or (2副露 + その色不切 + 他色6枚以上)** | **77.4%** | 27.0% |
+
+    「その色を1枚も切っていない」がいちばん効く条件。
+    染めている人はその色を絶対に手放さない。
+
+    逆に「中盤以降に他の色の中張牌を手出しする」は **効かなかった**（適合率0%）。
+    染め手の人は序盤のうちに他の色を切り終えているので、
+    中盤以降に切る他色はもう残っていない。
+    """
+    if len(player.melds) < 2:
+        return None
+    suits = set()
+    n_suit = 0
+    for m in player.melds:
+        for t in m.tiles:
+            if t < HONOR_IDX:
+                suits.add(t // 9)
+                n_suit += 1
+    if len(suits) != 1 or n_suit < 3:
+        return None
+    s = suits.pop()
+    if len(player.melds) >= 3:
+        return s                      # 3副露が1色なら、この場では例外なく染め手だった
+    in_disc = off_any = 0
+    for t in player.river:
+        if t >= HONOR_IDX:
+            continue
+        if t // 9 == s:
+            in_disc += 1
+        else:
+            off_any += 1
+    return s if in_disc == 0 and off_any >= 6 else None
+
+
+def toitoi_lean(player) -> bool:
+    """対々和に向かっていそうか。ポン・カンだけで2つ以上鳴いていること。"""
+    if len(player.melds) < 2:
+        return False
+    return all(m.kind != "chi" for m in player.melds)
+
 # その牌が **自分の手牌と本人の河を除いて** 何枚見えているか。
 # 実測（400局・82418標本・テンパイしている相手のみ）:
 #   数牌  0枚見え 10.04% / 1枚 6.09% / 2枚 4.87% / 3枚 2.30%
@@ -298,8 +372,20 @@ def wait_risk(player, tile: int, seen=None, mine=None) -> float:
             gone -= mine[tile]
         gone = min(3, max(0, gone))
 
+    lean = suit_lean(player)
+    toitoi = toitoi_lean(player)
+
     if tile >= HONOR:
-        return HONOR_RISK * HONOR_SEEN_FACTOR[gone]
+        r = HONOR_RISK * HONOR_SEEN_FACTOR[gone]
+        if lean is not None:
+            r *= HONITSU_HONOR
+        elif toitoi:
+            r *= TOITOI_HONOR
+        return r
+
+    if lean is not None and tile // 9 != lean:
+        # 染めている色でない数牌。役が消えるので当たらない
+        return RANK_RISK[_rank_class(tile)] * HONITSU_OUT * SEEN_FACTOR[gone]
 
     r = tile % 9 + 1
     base_idx = tile - (r - 1)
@@ -316,10 +402,15 @@ def wait_risk(player, tile: int, seen=None, mine=None) -> float:
     else:
         both = bool(lo) and bool(hi)
         half = bool(lo) != bool(hi)
-    if both:
+    if toitoi:
+        # 対々和の待ちはシャンポンか単騎。両面が無いのでスジは意味を持たない
+        risk *= TOITOI_SUJI
+    elif both:
         risk *= SUJI_FACTOR
     elif half:
         risk *= HALF_SUJI_FACTOR
+    if lean is not None:
+        risk *= HONITSU_IN
 
     # 早切りの周辺は、無スジでも安全寄り。ただし【手出し】に限る
     dist = 9
