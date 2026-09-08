@@ -25,6 +25,7 @@ from .players import (
     make_honitsu_lab,
     make_fold_lab,
     make_riichi_lab,
+    make_confirm_lab,
     make_kaname_lab,
     make_shape_lab,
     make_honitsu_field,
@@ -230,6 +231,8 @@ def build_lineup(lineup: str = "named", awareness: str = "none"):
         return make_kaname_lab()
     if lineup == "wall":
         return make_wall_lab()
+    if lineup == "confirm":
+        return make_confirm_lab()
     if lineup == "riichi":
         return make_riichi_lab()
     if lineup == "fold":

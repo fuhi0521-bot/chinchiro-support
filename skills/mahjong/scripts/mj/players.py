@@ -1276,6 +1276,49 @@ def make_kaname_lab() -> list:
     ]
 
 
+def make_confirm_lab() -> list:
+    """守りの直し2つを、かなめ本体に載せて確かめる。
+
+    4000半荘の2×2（fold）と即リー基準（riichi）で出た候補:
+
+      降り方（fold_tolerance_safe=0.2）  主効果 −0.028
+        放銃率 11.97% → 11.37%、和了率はほぼ据え置き（20.05→19.97）
+      安全牌の温存（keep_safe=True）      主効果 −0.007  ＝ 誤差
+        単独では放銃率がむしろ上がった（11.97→12.16）ので採らない
+      終盤の愚形安手は曲げない            −0.022（1.2SE、判定保留）
+        放銃率 11.86% → 11.53%、和了率 20.13% → 20.23%
+
+    どれも1〜2SEの話なので、有望な2つだけを重ねて取り直す。
+    同じ型を2人ずつ座らせて、1条件あたり実質12000半荘にする。
+    """
+    base = dict(
+        awareness="allast",
+        allast_conditions=True,
+        low_aggression=0.25,
+        top_caution=0.0,
+        last_place_desperation=0.18,
+        reading="tedashi",
+        river_read=True,
+        honitsu_min=11,
+        safety_weight=0.5,
+        call_min_value=1500,
+        call_max_shanten=3,
+        push=0.30,
+        value_weight=1.4,
+        damaten_value=12000,
+        deep_shape=True,
+    )
+    now = dict(base, riichi_bad_wait_cheap=True, fold_tolerance_safe=1.0)
+    new = dict(base, riichi_bad_wait_cheap=False, riichi_bad_width=4,
+               riichi_cheap=5200, riichi_late=12, fold_tolerance_safe=0.2)
+    return [
+        Player("現行A", Style(**now)),
+        Player("改良A", Style(**new)),
+        Player("現行B", Style(**now)),
+        Player("改良B", Style(**new)),
+    ]
+
+
 def make_riichi_lab() -> list:
     """即リー基準を、**形と巡目**の軸で測る。
 
