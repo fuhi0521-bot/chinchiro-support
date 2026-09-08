@@ -92,6 +92,11 @@ class Style:
     # 押すと決めても、安全牌を1枚だけ手元に残すか。
     # 最後の1枚を切ってしまうと、次巡で降りたくなったときに降りられない。
     keep_safe: bool = False
+    # 「悪形・安手・終盤ならリーチしない」ゲートの中身。
+    # riichi_bad_wait_cheap=True だとゲートそのものが無効（＝つねに即リー）。
+    riichi_bad_width: int = 4      # 受け入れ何枚以下を悪形とみなすか
+    riichi_cheap: int = 5200       # 何点未満を安手とみなすか
+    riichi_late: int = 12          # 何巡目以降を終盤とみなすか
 
 
 def value_band(points: int) -> str:
@@ -654,7 +659,8 @@ class Player:
         if self.estimate_value(view, dama=True) >= st.damaten_value and width <= 4:
             return False
         # 悪形・安手・終盤
-        if not st.riichi_bad_wait_cheap and width <= 4 and value < 5200 and view.turn >= 12:
+        if (not st.riichi_bad_wait_cheap and width <= st.riichi_bad_width
+                and value < st.riichi_cheap and view.turn >= st.riichi_late):
             return False
         return True
 
@@ -1267,6 +1273,58 @@ def make_kaname_lab() -> list:
         Player("ダマ8000", Style(**base, damaten_value=8000)),
         Player("ダマ5200", Style(**base, damaten_value=5200)),
         Player("ダマ3900", Style(**base, damaten_value=3900)),
+    ]
+
+
+def make_riichi_lab() -> list:
+    """即リー基準を、**形と巡目**の軸で測る。
+
+    ダマの基準（何点あればダマに構えるか）は experiment-damaten.md で
+    6000半荘測ってあり、3900〜12000 のどこに置いても順位差は 0.04 以内だった。
+    だが「曲げるかどうか」にはもう一本、**測っていない軸**がある。
+
+      悪形・安手のリーチを、いつから見送るか。
+
+    2400局の監査で、4人とも **リーチの約6割が受け入れ4枚以下**だった。
+    平均9巡目・平均待ち4.8枚。この愚形リーチが得なのか損なのかは
+    まだ一度も測っていない。
+
+    いまのコードの門は1つだけ:
+
+        width <= riichi_bad_width and value < riichi_cheap and turn >= riichi_late
+
+    かなめは riichi_bad_wait_cheap=True でこの門ごと無効にしている（＝即リー）。
+    門を開けて、どこに置くのが得かを見る。
+    """
+    base = dict(
+        awareness="allast",
+        allast_conditions=True,
+        low_aggression=0.25,
+        top_caution=0.0,
+        last_place_desperation=0.18,
+        reading="tedashi",
+        river_read=True,
+        honitsu_min=11,
+        safety_weight=0.5,
+        call_min_value=1500,
+        call_max_shanten=3,
+        push=0.30,
+        value_weight=1.4,
+        damaten_value=12000,
+        deep_shape=True,
+    )
+    return [
+        # 門を閉じたまま。いまのかなめ
+        Player("即リー", Style(**base, riichi_bad_wait_cheap=True)),
+        # 終盤の悪形・安手だけ見送る（いまのゆみこ）
+        Player("終盤愚形安手", Style(**base, riichi_bad_wait_cheap=False,
+                                riichi_bad_width=4, riichi_cheap=5200, riichi_late=12)),
+        # 同じ条件を中盤から
+        Player("中盤から", Style(**base, riichi_bad_wait_cheap=False,
+                             riichi_bad_width=4, riichi_cheap=5200, riichi_late=9)),
+        # 終盤の悪形は打点にかかわらず見送る
+        Player("終盤愚形は不問", Style(**base, riichi_bad_wait_cheap=False,
+                                riichi_bad_width=4, riichi_cheap=999999, riichi_late=12)),
     ]
 
 

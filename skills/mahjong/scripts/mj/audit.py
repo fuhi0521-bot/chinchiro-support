@@ -171,10 +171,11 @@ class Audit:
                 s["└ 押し・2シャンテン以遠"] += 1
 
 
-def run(hands: int, seed: int, lineup: str, tol_safe: float | None = None):
+def run(hands: int, seed: int, lineup: str, tol_safe: float | None = None,
+        awareness: str = "none"):
     from mj.simulate import build_lineup
 
-    ai = build_lineup(lineup)
+    ai = build_lineup(lineup, awareness)
     if tol_safe is not None:
         for p in ai:
             p.style.fold_tolerance_safe = tol_safe
@@ -306,11 +307,14 @@ def main():
     ap.add_argument("--hands", type=int, default=400)
     ap.add_argument("--seed", type=int, default=5)
     ap.add_argument("--lineup", default="named")
+    ap.add_argument("--awareness", default="none",
+                    choices=["none", "allast", "south", "always"],
+                    help="点数状況をどこまで見るか（named のときのみ）")
     ap.add_argument("--tol-safe", type=float, default=None,
                     help="全員の fold_tolerance_safe を上書きする（A/B用）")
     a = ap.parse_args()
     print(f"{a.hands} 局を打って、1打ずつ答え合わせします…")
-    print(report(run(a.hands, a.seed, a.lineup, a.tol_safe)))
+    print(report(run(a.hands, a.seed, a.lineup, a.tol_safe, a.awareness)))
 
 
 if __name__ == "__main__":
