@@ -39,13 +39,23 @@ class Audit:
         self.loss = {n: [] for n in names}      # 牌効率ロス
         self.wait_loss = {n: [] for n in names}  # 待ち取りロス
         self.last = {}                           # seat -> 直近の打牌の記録
+        self.hand = {}                           # seat -> この局の経過
+        self.late = {n: [] for n in names}       # 降り遅れ（脅威発生から降りるまでの巡数）
+        self.riichi = {n: [] for n in names}     # (巡目, 待ち枚数, 先制か)
 
     def record(self, name, seat, view, tile, threats, folding):
         me = view.me
         s = self.stat[name]
         s["打牌"] += 1
         hand = list(me.hand)
+        h = self.hand.setdefault(seat, dict(name=name, threat=None, fold=None))
 
+        if threats:
+            if h["threat"] is None:
+                h["threat"] = view.turn
+            if folding and h["fold"] is None:
+                h["fold"] = view.turn
+                self.late[name].append(view.turn - h["threat"])
         if threats:
             s["脅威あり"] += 1
             if folding:
@@ -55,9 +65,20 @@ class Audit:
                 p.river_counts[t] or t in p.passed for p, _ in threats)]
             seen = view.seen_all()
             risk = max(pl.reading.wait_risk(p, tile, seen, hand) for p, _ in threats)
-            self.last[seat] = dict(name=name, tile=tile, hand=hand,
+            sh = fast.shanten(hand, me.called)
+            if folding:
+                s["降り打牌"] += 1
+                if sh <= 0:
+                    s["テンパイから降りた"] += 1
+                elif sh == 1:
+                    s["1シャンテンから降りた"] += 1
+            else:
+                s["押し打牌"] += 1
+                if not safe:
+                    s["押し・安全牌0"] += 1
+            self.last[seat] = dict(name=name, tile=tile, hand=hand, turn=view.turn,
                                    safe=safe, risk=risk, folding=folding,
-                                   shanten=fast.shanten(hand, me.called),
+                                   shanten=sh,
                                    threats=[p.seat for p, _ in threats])
         else:
             self.last[seat] = None
@@ -98,6 +119,29 @@ class Audit:
                 if bw >= 0 and cw >= 0:
                     self.wait_loss[name].append(bw - cw)
 
+    def declare(self, name, seat, view, waits, first):
+        """リーチ宣言。巡目・待ち枚数・先制かどうかを覚える。"""
+        self.riichi[name].append((view.turn, waits, first))
+        s = self.stat[name]
+        s["リーチ"] += 1
+        if first:
+            s["先制リーチ"] += 1
+        else:
+            s["追っかけリーチ"] += 1
+        if waits <= 4:
+            s["愚形リーチ"] += 1
+
+    def end(self, res):
+        """局の終わり。降りきれたかを数える。"""
+        for seat, h in self.hand.items():
+            s = self.stat[h["name"]]
+            if h["fold"] is None:
+                continue
+            s["降りた局"] += 1
+            if not (res.kind == "ron" and res.loser == seat):
+                s["降りきった"] += 1
+        self.hand.clear()
+
     def deal_in(self, seat, winner):
         rec = self.last.get(seat)
         if not rec:
@@ -107,6 +151,10 @@ class Audit:
         s["放銃時の危険度合計"] += int(rec["risk"] * 100)
         if rec["folding"]:
             s["降りたのに放銃"] += 1
+        h = self.hand.get(seat)
+        if h and h["threat"] is not None and h["fold"] is None:
+            s["押し切って放銃"] += 1
+            s["押した巡数合計"] += rec["turn"] - h["threat"]
         # 和了者に通る牌が手の中にあったか
         gen = [t for t in range(NUM_TILES) if rec["hand"][t] and (
             winner.river_counts[t] or t in winner.passed)]
@@ -123,10 +171,13 @@ class Audit:
                 s["└ 押し・2シャンテン以遠"] += 1
 
 
-def run(hands: int, seed: int, lineup: str):
+def run(hands: int, seed: int, lineup: str, tol_safe: float | None = None):
     from mj.simulate import build_lineup
 
     ai = build_lineup(lineup)
+    if tol_safe is not None:
+        for p in ai:
+            p.style.fold_tolerance_safe = tol_safe
     audit = Audit([p.name for p in ai])
     orig = pl.Player.discard
 
@@ -138,6 +189,13 @@ def run(hands: int, seed: int, lineup: str):
             folding = not self._should_push(self.push_value(view, level))
         tile, declare = orig(self, view, forbidden)
         audit.record(self.name, view.seat, view, tile, threats, folding)
+        if declare:
+            me = view.me
+            me.hand[tile] -= 1
+            waits = sum(n for _, n in fast.ukeire(me.hand, me.called, view.visible())[1])
+            me.hand[tile] += 1
+            first = not any(p.riichi for p in view.others)
+            audit.declare(self.name, view.seat, view, waits, first)
         return tile, declare
 
     pl.Player.discard = hook
@@ -150,6 +208,7 @@ def run(hands: int, seed: int, lineup: str):
                 for seat, *_ in res.winners:
                     audit.deal_in(res.loser, g.players[seat])
                     break
+            audit.end(res)
             audit.last.clear()
             if (k + 1) % 100 == 0:
                 print(f"  {k + 1}/{hands} 局", flush=True)
@@ -197,6 +256,48 @@ def report(audit) -> str:
     out.append("")
     out.append("  脅威がない（誰もテンパイに見えない）ときだけを対象にしている。")
     out.append("  ここでのロスは打点や手役のために意図的に削ったぶんも含む。")
+
+    out.append("\n■ 降り方（決めたあと、降りきれているか）")
+    out.append(f"  {'雀士':<10} {'降りた局':>8} {'降りきり':>8} {'降り遅れ':>9} "
+               f"{'テンパイ降り':>12} {'押し切り放銃':>12} {'押した巡数':>10}")
+    out.append("-" * 78)
+    for name, s2 in audit.stat.items():
+        nf = s2["降りた局"] or 1
+        late = audit.late[name]
+        lav = sum(late) / len(late) if late else 0.0
+        npush = s2["押し切って放銃"] or 1
+        ndf = s2["降り打牌"] or 1
+        out.append(
+            f"  {name:<10} {s2['降りた局']:>8} {s2['降りきった'] / nf * 100:>7.1f}% "
+            f"{lav:>8.2f}巡 {s2['テンパイから降りた'] / ndf * 100:>11.1f}% "
+            f"{s2['押し切って放銃']:>12} {s2['押した巡数合計'] / npush:>9.2f}巡")
+    out.append("")
+    out.append("  降り遅れ ＝ 脅威が立ってから降りると決めるまでの巡数（0が即降り）")
+    out.append("  押し切り放銃 ＝ 一度も降りずに押し通して放銃した数")
+
+    out.append("\n■ 押しているときの安全牌")
+    out.append(f"  {'雀士':<10} {'押し打牌':>9} {'安全牌0枚':>10} {'割合':>8}")
+    out.append("-" * 42)
+    for name, s2 in audit.stat.items():
+        np_ = s2["押し打牌"] or 1
+        out.append(f"  {name:<10} {s2['押し打牌']:>9} {s2['押し・安全牌0']:>10} "
+                   f"{s2['押し・安全牌0'] / np_ * 100:>7.1f}%")
+    out.append("")
+    out.append("  安全牌0枚で押していると、次巡に降りたくなっても降りられない。")
+
+    out.append("\n■ リーチの内訳")
+    out.append(f"  {'雀士':<10} {'リーチ':>7} {'先制':>7} {'追っかけ':>9} "
+               f"{'愚形(4枚以下)':>14} {'平均巡目':>9} {'平均待ち':>9}")
+    out.append("-" * 74)
+    for name, s2 in audit.stat.items():
+        rs = audit.riichi[name]
+        n = len(rs) or 1
+        tav = sum(t for t, _, _ in rs) / n
+        wav = sum(w for _, w, _ in rs) / n
+        out.append(
+            f"  {name:<10} {s2['リーチ']:>7} {s2['先制リーチ']:>7} "
+            f"{s2['追っかけリーチ']:>9} {s2['愚形リーチ'] / n * 100:>13.1f}% "
+            f"{tav:>8.1f}巡 {wav:>8.1f}枚")
     return "\n".join(out)
 
 
@@ -205,9 +306,11 @@ def main():
     ap.add_argument("--hands", type=int, default=400)
     ap.add_argument("--seed", type=int, default=5)
     ap.add_argument("--lineup", default="named")
+    ap.add_argument("--tol-safe", type=float, default=None,
+                    help="全員の fold_tolerance_safe を上書きする（A/B用）")
     a = ap.parse_args()
     print(f"{a.hands} 局を打って、1打ずつ答え合わせします…")
-    print(report(run(a.hands, a.seed, a.lineup)))
+    print(report(run(a.hands, a.seed, a.lineup, a.tol_safe)))
 
 
 if __name__ == "__main__":

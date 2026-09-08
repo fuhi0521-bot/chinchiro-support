@@ -81,6 +81,14 @@ class Style:
     # 2シャンテン以遠でもブロックの質（良形か愚形か）を見るか。
     # 受け入れ枚数だけだと、愚形3つの手と良形2つの手が同じ点になる。
     deep_shape: bool = False
+    # 降りると決めたとき、「最安の牌から何ポイントまで同程度に安全とみなすか」。
+    # ここが緩いと、現物（危険度0.0）があるのに 1.0% の牌を選んで手を残してしまう。
+    # 600局の監査で、降りると決めた局面での放銃が全放銃の23〜43%を占め、
+    # そのうち「手の中に現物があった」ケースが 3〜9件あった。
+    fold_tolerance: float = 1.0
+    # 最安牌が現物（危険度ほぼ0）だったときの、より狭い許容幅。
+    # 現物があるのに「ほぼ同じ」として 1.0% の牌を選ぶのを防ぐ。
+    fold_tolerance_safe: float = 0.2
     # 押すと決めても、安全牌を1枚だけ手元に残すか。
     # 最後の1枚を切ってしまうと、次巡で降りたくなったときに降りられない。
     keep_safe: bool = False
@@ -356,8 +364,12 @@ class Player:
         seen_out = view.visible()
         risks = {t: self._risk_of(view, t, threats, seen) for t in candidates}
         floor = min(risks.values())
-        # 最安手から 1.0ポイント以内の牌を「同程度に安全」とみなす
-        near = [t for t in candidates if risks[t] <= floor + 1.0]
+        # 最安手から何ポイント以内を「同程度に安全」とみなすか。
+        # 最安が現物（ほぼ0）なら、その幅は狭くないと意味がない
+        tol = self.style.fold_tolerance
+        if floor < 0.5:
+            tol = min(tol, self.style.fold_tolerance_safe)
+        near = [t for t in candidates if risks[t] <= floor + tol]
         if len(near) == 1:
             return near[0]
         best, best_score = None, -1e9
@@ -1255,6 +1267,50 @@ def make_kaname_lab() -> list:
         Player("ダマ8000", Style(**base, damaten_value=8000)),
         Player("ダマ5200", Style(**base, damaten_value=5200)),
         Player("ダマ3900", Style(**base, damaten_value=3900)),
+    ]
+
+
+def make_fold_lab() -> list:
+    """守り方の2つの直しを、2×2で同時に測る。
+
+    600局×4シードの打牌監査でわかったこと:
+
+      1. 放銃の 20〜39% は **降りると決めていた局面**で起きていた。
+         原因は許容幅。最安の牌から fold_tolerance ポイント以内を
+         「同じくらい安全」とみなして手を残す牌を選ぶので、
+         最安が現物（0.0%）でも幅 1.0 なら 1.0% の牌が候補に残る。
+         → fold_tolerance_safe = 0.2 で締める。
+
+      2. 押している打牌の **44〜48% は、手の中に現物が1枚もない**。
+         そうなると次巡に降りたくなっても降りられない。
+         → keep_safe = True で、最後の1枚の安全牌を温存する。
+
+    どちらも「放銃を減らすが、和了率を下げる」方向の変更なので、
+    順位で効いているかを確かめないと採用できない。
+    """
+    base = dict(
+        awareness="allast",
+        allast_conditions=True,
+        low_aggression=0.25,
+        top_caution=0.0,
+        riichi_bad_wait_cheap=True,
+        last_place_desperation=0.18,
+        reading="tedashi",
+        river_read=True,
+        honitsu_min=11,
+        safety_weight=0.5,
+        call_min_value=1500,
+        call_max_shanten=3,
+        push=0.30,
+        value_weight=1.4,
+        damaten_value=12000,
+        deep_shape=True,
+    )
+    return [
+        Player("素", Style(**base, fold_tolerance_safe=1.0, keep_safe=False)),
+        Player("降り方", Style(**base, fold_tolerance_safe=0.2, keep_safe=False)),
+        Player("安全牌", Style(**base, fold_tolerance_safe=1.0, keep_safe=True)),
+        Player("両方", Style(**base, fold_tolerance_safe=0.2, keep_safe=True)),
     ]
 
 
