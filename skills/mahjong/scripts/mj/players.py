@@ -678,7 +678,7 @@ class Player:
 
         # 点数状況で決まるなら、そちらを優先する
         if self._aware(view) and st.allast_conditions:
-            decided = self._situational_riichi(view, width)
+            decided = self._situational_riichi(view, width, discard)
             if decided is not None:
                 return decided
 
@@ -702,12 +702,19 @@ class Player:
             return False
         return True
 
-    def _situational_riichi(self, view, width):
+    def _situational_riichi(self, view, width, discard=None):
         """点数状況からリーチ／ダマを決める。決まらなければ None。"""
         scores = view.scores
         me = view.seat
         rank = self._rank(view)
+        # 和了できたときの上乗せ。ツモ和了も含むので推定値でよい
         dama_value = self.estimate_value(view, dama=True)
+        # 「ダマの出アガリで条件を満たせるか」に使う値。
+        # 役がなければロンできないので 0。推定値だと役なしの手を
+        # 1300〜7800点と見積もり、「ダマで足りる」と誤判定する
+        dama_ron = (self.dama_ron_value(view, discard)
+                    if discard is not None and self.style.dama_exact
+                    else dama_value)
 
         if view.is_all_last:
             if rank == 0:
@@ -730,7 +737,7 @@ class Player:
             need = min(needs)
             # リーチ棒1000点ぶん条件がきつくなる
             need += 1000
-            if dama_value >= need and width >= 3:
+            if dama_ron >= need and width >= 3:
                 # ダマで足りる。リーチして相手を降ろすと出アガリの機会が減る
                 return False
             return True
@@ -1311,6 +1318,37 @@ def make_kaname_lab() -> list:
         Player("ダマ8000", Style(**base, damaten_value=8000)),
         Player("ダマ5200", Style(**base, damaten_value=5200)),
         Player("ダマ3900", Style(**base, damaten_value=3900)),
+    ]
+
+
+def make_probe_lab() -> list:
+    """わざと極端な4人。**勝つためではなく、普段通らない分岐を通すため**。
+
+    今日のダマのバグが見えたのは、ゆみこが damaten_value=5200 を
+    持っていたから。かなめ（12000）だけならこの分岐は
+    リーチ判断665回のうち2回しか通らず、気づけなかった。
+
+      極端な設定のエージェントは、普段通らないコードパスを通す。
+
+    パラメータ探索用の「少しずつ違う4人」とは目的が違う。
+    順位は悪くていい。通っていない場所を通すのが仕事。
+    """
+    base = dict(
+        awareness="always", allast_conditions=True,
+        reading="tedashi", river_read=True, deep_shape=True,
+    )
+    return [
+        # 何があってもダマ。リーチ側の分岐を素通りさせ、ダマ側を踏み抜く
+        Player("全ダマ", Style(**base, damaten_value=0, push=0.30)),
+        # 絶対に降りない。押し側の分岐と、放銃まわりを踏む
+        Player("不退転", Style(**base, damaten_value=12000, push=0.0,
+                            safety_weight=0.0)),
+        # 何でも鳴く。副露・喰い替え・役の確定まわりを踏む
+        Player("何でも鳴く", Style(**base, damaten_value=12000, push=0.30,
+                              call_min_value=0, call_max_shanten=4)),
+        # ほぼ押さない。降り・回し打ち・形式テンパイまわりを踏む
+        Player("常に降り", Style(**base, damaten_value=12000, push=1.0,
+                             safety_weight=3.0, fold_tolerance=0.05)),
     ]
 
 
