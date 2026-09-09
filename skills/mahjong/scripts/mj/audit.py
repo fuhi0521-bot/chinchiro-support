@@ -33,6 +33,27 @@ from mj.game import Game  # noqa: E402
 from mj.tiles import NUM_TILES, tile_str  # noqa: E402
 
 
+
+def _loose_lean(p):
+    """緩い染め手の見立て。1副露でも、その色を1枚も切っていなければ疑う。
+
+    reading.suit_lean は 2副露以上を条件にしているので、実戦で刺さった
+    「1副露の混一色」を取りこぼす。ここは危険度計算には使わず、
+    **見えていたはずの危険を数えるため** だけに使う。
+    """
+    if not p.melds:
+        return None
+    suits = {t // 9 for m in p.melds for t in m.tiles if t < 27}
+    if len(suits) != 1:
+        return None
+    suit = suits.pop()
+    in_disc = sum(n for t, n in enumerate(p.river_counts)
+                  if t < 27 and t // 9 == suit)
+    off = sum(n for t, n in enumerate(p.river_counts)
+              if t < 27 and t // 9 != suit)
+    return suit if in_disc == 0 and off >= 4 else None
+
+
 class Audit:
     def __init__(self, names):
         self.stat = {n: collections.Counter() for n in names}
@@ -43,7 +64,7 @@ class Audit:
         self.late = {n: [] for n in names}       # 降り遅れ（脅威発生から降りるまでの巡数）
         self.riichi = {n: [] for n in names}     # (巡目, 待ち枚数, 先制か)
 
-    def record(self, name, seat, view, tile, threats, folding):
+    def record(self, name, seat, view, tile, threats, folding, player=None):
         me = view.me
         s = self.stat[name]
         s["打牌"] += 1
@@ -76,9 +97,31 @@ class Audit:
                 s["押し打牌"] += 1
                 if not safe:
                     s["押し・安全牌0"] += 1
+            # --- ロンで和了れない手で押していないか
+            # 役なしのダマテンは「テンパイしている」だけで押す理由にならない。
+            # 出アガリの権利が無いので、押しても放銃の危険を負うだけ。
+            # 実戦の牌譜でも、役なしダマのまま4巡押して混一色に放銃していた。
+            if not folding and sh <= 0 and not me.riichi and player is not None:
+                s["役なしか判定したテンパイ押し"] += 1
+                try:
+                    if player.dama_ron_value(view, tile) <= 0:
+                        s["ロンできない手で押した"] += 1
+                except Exception:
+                    pass
+            # --- 染め手にその色を押していないか
+            # 1副露でも、その色を1枚も切っていない相手は染めている可能性が高い。
+            # いまの suit_lean は2副露以上しか見ないので、実戦の1副露混一色を
+            # 取りこぼす。ここでは緩い基準で「見えていたはずの危険」を数える。
+            for p, _ in threats:
+                suit = _loose_lean(p)
+                if suit is None:
+                    continue
+                s["染めが見えている相手への打牌"] += 1
+                if tile < 27 and tile // 9 == suit:
+                    s["└ その色を押した"] += 1
             self.last[seat] = dict(name=name, tile=tile, hand=hand, turn=view.turn,
                                    safe=safe, risk=risk, folding=folding,
-                                   shanten=sh,
+                                   shanten=sh, riichi=me.riichi,
                                    threats=[p.seat for p, _ in threats])
         else:
             self.last[seat] = None
@@ -151,6 +194,9 @@ class Audit:
         s["放銃時の危険度合計"] += int(rec["risk"] * 100)
         if rec["folding"]:
             s["降りたのに放銃"] += 1
+        if rec.get("riichi"):
+            # リーチ後はツモ切り強制。打牌の選択ミスではない
+            s["リーチ後の放銃"] += 1
         h = self.hand.get(seat)
         if h and h["threat"] is not None and h["fold"] is None:
             s["押し切って放銃"] += 1
@@ -189,7 +235,7 @@ def run(hands: int, seed: int, lineup: str, tol_safe: float | None = None,
         if level > 0:
             folding = not self._should_push(self.push_value(view, level))
         tile, declare = orig(self, view, forbidden)
-        audit.record(self.name, view.seat, view, tile, threats, folding)
+        audit.record(self.name, view.seat, view, tile, threats, folding, self)
         if declare:
             me = view.me
             me.hand[tile] -= 1
@@ -285,6 +331,30 @@ def report(audit) -> str:
                    f"{s2['押し・安全牌0'] / np_ * 100:>7.1f}%")
     out.append("")
     out.append("  安全牌0枚で押していると、次巡に降りたくなっても降りられない。")
+
+    out.append("\n■ ロンできない手で押していないか")
+    out.append(f"  {'雀士':<10} {'ダマのテンパイ押し':>18} {'ロン不可の手で押した':>20} {'割合':>8}")
+    out.append("-" * 62)
+    for name, s2 in audit.stat.items():
+        n = s2["役なしか判定したテンパイ押し"] or 1
+        out.append(f"  {name:<10} {s2['役なしか判定したテンパイ押し']:>18} "
+                   f"{s2['ロンできない手で押した']:>20} "
+                   f"{s2['ロンできない手で押した'] / n * 100:>7.1f}%")
+    out.append("")
+    out.append("  役なしのダマテンは、テンパイしていても出アガリの権利が無い。")
+    out.append("  押す理由にならないのに押していれば、放銃の危険だけを負っている。")
+
+    out.append("\n■ 染め手が見えている相手に、その色を押していないか")
+    out.append(f"  {'雀士':<10} {'染めが見える相手への打牌':>24} {'その色を押した':>16} {'割合':>8}")
+    out.append("-" * 66)
+    for name, s2 in audit.stat.items():
+        n = s2["染めが見えている相手への打牌"] or 1
+        out.append(f"  {name:<10} {s2['染めが見えている相手への打牌']:>24} "
+                   f"{s2['└ その色を押した']:>16} "
+                   f"{s2['└ その色を押した'] / n * 100:>7.1f}%")
+    out.append("")
+    out.append("  1副露でも、その色を1枚も切っていない相手は染めを疑う（緩い基準）。")
+    out.append("  危険度計算には使わず、見えていたはずの危険を数えるためだけに使う。")
 
     out.append("\n■ リーチの内訳")
     out.append(f"  {'雀士':<10} {'リーチ':>7} {'先制':>7} {'追っかけ':>9} "
