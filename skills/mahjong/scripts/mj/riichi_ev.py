@@ -216,6 +216,63 @@ def show(tab):
     return "\n".join(out)
 
 
+DEFAULT_TABLE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "data", "tenpai_table.json")
+_cache = {}
+
+
+def table(path: str | None = None):
+    """同梱の表を読む。measure() で作り直せる。"""
+    path = path or DEFAULT_TABLE
+    if path not in _cache:
+        with open(path, encoding="utf-8") as f:
+            _cache[path] = json.load(f)
+    return _cache[path]
+
+
+def advise(live: int, turns_left: int, has_yaku: bool, path: str | None = None):
+    """この局面でリーチとダマ、どちらがどれだけ得か。単位は点。
+
+    live       … 待ち牌のうち、**自分から見えていない枚数**
+                 （4枚 − 河・副露・自分の手にある枚数）
+
+                 注意: 雀魂の牌譜再生が出す「待ち◯◯ N」の N は
+                 **山に残っている枚数**で、相手の手牌にある分は
+                 含まない。全知の情報であり、卓上では分からない。
+                 別の量なので、そのまま入れてはいけない。
+                 実際、この取り違えで実戦の局面を誤って判定した。
+    turns_left … 残り巡数（18 − 巡目）
+    has_yaku   … ダマのままロンで和了れるか
+
+    役が無ければ、ダマ側は「ロンで取れない手」の実測を使う。
+    その系統の和了率には、あとで手が変わって役がついた分が入っている
+    （実測で 29%）。それが手変わりの価値にあたる。
+    """
+    tab = table(path)
+    a, b = _bin(live, LIVE_BINS), _bin(max(0, turns_left), TURN_BINS)
+    r = _cell(tab, a, b, 2)
+    d = _cell(tab, a, b, 1 if has_yaku else 0)
+
+    def _ev(cell, riichi):
+        if cell is None:
+            return None
+        n = cell["n"]
+        win = cell["win"] / n * (cell["wp"] / cell["win"] if cell["win"] else 0)
+        deal = cell["deal"] / n * (cell["dp"] / cell["deal"] if cell["deal"] else 0)
+        return win - deal - (1000 if riichi else 0)
+
+    ev_r, ev_d = _ev(r, True), _ev(d, False)
+    if ev_r is None or ev_d is None:
+        return None
+    return {
+        "リーチ": round(ev_r),
+        "ダマ": round(ev_d),
+        "差": round(ev_r - ev_d),
+        "薦め": "リーチ" if ev_r > ev_d else "ダマ",
+        "件数": {"リーチ": r["n"], "ダマ": d["n"]},
+    }
+
+
 # ------------------------------------------------------------------ 使う側
 
 def load(path):
