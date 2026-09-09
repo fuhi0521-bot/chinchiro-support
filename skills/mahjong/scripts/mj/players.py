@@ -97,6 +97,11 @@ class Style:
     riichi_bad_width: int = 4      # 受け入れ何枚以下を悪形とみなすか
     riichi_cheap: int = 5200       # 何点未満を安手とみなすか
     riichi_late: int = 12          # 何巡目以降を終盤とみなすか
+    # ダマ判定に「役があるか」を厳密に見るか。
+    # False だと旧来の推定（役なしでも必ず1翻以上に切り上げる）に戻る。
+    # 600局の計測で、リーチ判断665回のうち297回（44.7%）は
+    # ダマではロンできない手なのに 1300〜7800点と見積もられていた。
+    dama_exact: bool = True
 
 
 def value_band(points: int) -> str:
@@ -161,6 +166,35 @@ class Player:
         table = {1: 1300, 2: 2600, 3: 5200, 4: 7700, 5: 8000, 6: 12000, 7: 12000}
         base = table.get(han, 16000 if han < 11 else 24000)
         return base if not view.is_dealer else int(base * 1.5)
+
+    def dama_ron_value(self, view, discard) -> int:
+        """ダマのまま **ロンで** 取れる点数。役がなければ 0。
+
+        estimate_value(dama=True) はドラ・役牌・タンヤオを数えるだけで、
+        「役が成立するか」を一度も見ていない。しかも最後に max(1, han) で
+        1翻に切り上げるので、**役なしの手でも必ず1300点以上を返す**。
+
+        役なしの手はダマではロンできない。0点が正しい。
+        この取り違えは「リーチしないと取れない手」を「ダマで十分」と
+        誤らせる向きに効く。ここは推定ではなく、役判定を通して数える。
+        """
+        me = view.me
+        hand = me.hand
+        hand[discard] -= 1
+        try:
+            s, acc = fast.ukeire(hand, me.called, view.visible())
+            if s != 0:
+                return 0
+            best = 0
+            for t, n in acc:
+                if n <= 0:
+                    continue          # 4枚とも見えている待ちは出てこない
+                r = view.game.score_hand(me, t, False, extra=t)
+                if r is not None and r.payment is not None:
+                    best = max(best, r.payment.ron)
+            return best
+        finally:
+            hand[discard] += 1
 
     # ------------------------------------------------------- 点数状況を見る
 
@@ -656,7 +690,11 @@ class Player:
         # 「リーチしない基準」と比べていた。
         # そのせいで ゆみこ（damaten_value=5200）は **ダマ1950点の手を
         # 「打点十分」と判定してダマにしていた**（400局で25回）。
-        if self.estimate_value(view, dama=True) >= st.damaten_value and width <= 4:
+        # ダマのままロンで取れる点数で比べる。役なしなら 0 になるので、
+        # 「役がないのにダマで十分」と誤判定しない
+        dama = (self.dama_ron_value(view, discard) if st.dama_exact
+                else self.estimate_value(view, dama=True))
+        if dama >= st.damaten_value and width <= 4:
             return False
         # 悪形・安手・終盤
         if (not st.riichi_bad_wait_cheap and width <= st.riichi_bad_width
@@ -1273,6 +1311,36 @@ def make_kaname_lab() -> list:
         Player("ダマ8000", Style(**base, damaten_value=8000)),
         Player("ダマ5200", Style(**base, damaten_value=5200)),
         Player("ダマ3900", Style(**base, damaten_value=3900)),
+    ]
+
+
+def make_dama_lab() -> list:
+    """ダマ判定の値の出し方を変えて、順位で確かめる。
+
+    旧: estimate_value(dama=True) … ドラ・役牌・タンヤオを数えるだけ。
+        役の有無を見ず、最後に max(1, han) で必ず1翻以上にする。
+        600局の計測では、リーチ判断665回のうち **297回（44.7%）** が
+        「ダマではロンできない手」なのに 1300〜7800点と見積もられていた。
+    新: dama_ron_value() … 実際に役判定を通し、役がなければ 0点。
+
+    damaten_value は 5200 に置く。ここが判定のひっくり返る割合が
+    大きい（21.4%）ので、違いが出るなら出る。
+
+    同じ型を2人ずつ座らせて、この実験自身のノイズ幅も同時に測る。
+    前回、4000半荘で「2.5SE」に見えた差が6000半荘で消えた。
+    """
+    base = dict(
+        awareness="allast", allast_conditions=True, low_aggression=0.25,
+        top_caution=0.0, riichi_bad_wait_cheap=True, last_place_desperation=0.18,
+        reading="tedashi", river_read=True, honitsu_min=11, safety_weight=0.5,
+        call_min_value=1500, call_max_shanten=3, push=0.30, value_weight=1.4,
+        deep_shape=True, damaten_value=5200,
+    )
+    return [
+        Player("旧A", Style(**base, dama_exact=False)),
+        Player("新A", Style(**base, dama_exact=True)),
+        Player("旧B", Style(**base, dama_exact=False)),
+        Player("新B", Style(**base, dama_exact=True)),
     ]
 
 
