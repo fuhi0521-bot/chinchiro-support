@@ -74,9 +74,18 @@ def measure(hands: int, seed: int, lineup: str = "named", awareness: str = "alla
             s, acc = fast.ukeire(me.hand, me.called, view.visible())
             if s == 0:
                 live = sum(n for _, n in acc)
+                if me.riichi or declare:
+                    c = 2                      # リーチ
+                else:
+                    # ダマは「役があるか」で全く別物。役なしはロンできない。
+                    # 混ぜて数えると、待ちを広げたのに和了率が下がるという
+                    # 一見おかしな表になる（実際そうなった）
+                    try:
+                        c = 1 if self.dama_ron_value(view, tile) > 0 else 0
+                    except Exception:
+                        c = 1
                 key = (_bin(live, LIVE_BINS),
-                       _bin(max(0, 18 - view.turn), TURN_BINS),
-                       1 if me.riichi or declare else 0)
+                       _bin(max(0, 18 - view.turn), TURN_BINS), c)
                 states.setdefault(view.seat, set()).add(key)
         finally:
             me.hand[tile] += 1
@@ -112,42 +121,55 @@ def check(tab) -> list[str]:
     """規則として成り立っていないといけないことを確かめる。
 
     順位を測らなくても、ここが破れていればその表は間違っている。
+
+    **最初に書いた検査のうち2つは、私の思い込みだった**:
+
+      「リーチのほうが放銃しやすい（降りられないので）」
+        → 実測は逆。待ち6-8枚だと リーチ2.8% / ダマ8.3%。
+          リーチは(1)早く和了って局が終わる (2)相手を降ろす
+          の2つで、放銃の機会そのものを減らす。検査から外した。
+
+      「待ちが広いほど和了りやすい」
+        → ダマを一括りにすると破れた（2-3枚35.3% → 4-5枚29.1%）。
+          ダマには **ロンできない役なしの手** が混ざっていたため。
+          役あり/役なしに分けてから検査する。
     """
     bad = []
     get = lambda a, b, c: tab.get(f"{a},{b},{c}")
 
-    # 1. 待ち0枚では和了れない
+    # 1. 待ち0枚では和了れない（どの系統でも）
     for b in range(len(TURN_BINS) - 1):
-        for c in (0, 1):
+        for c in (0, 1, 2):
             d = get(0, b, c)
             if d and d["n"] >= 20 and d["win"] > 0:
                 bad.append(f"待ち0枚({b},{c}) なのに和了 {d['win']}/{d['n']}")
 
-    # 2. リーチのほうが放銃しやすい（降りられないので）
+    # 2. 役なしのダマは、ロンで和了れない。ツモだけなので和了率は
+    #    役ありのダマより必ず低い
     for a in range(len(LIVE_BINS) - 1):
         for b in range(len(TURN_BINS) - 1):
             x, y = get(a, b, 0), get(a, b, 1)
             if x and y and x["n"] >= 60 and y["n"] >= 60:
-                rx, ry = x["deal"] / x["n"], y["deal"] / y["n"]
-                if ry < rx - 0.05:
+                rx, ry = x["win"] / x["n"], y["win"] / y["n"]
+                if rx > ry + 0.03:
                     bad.append(
-                        f"待ち{a}巡{b}: リーチの放銃率 {ry:.3f} が "
-                        f"ダマ {rx:.3f} より 0.05 以上低い")
+                        f"待ち{a}巡{b}: 役なしダマの和了率 {rx:.3f} が "
+                        f"役ありダマ {ry:.3f} を上回る")
 
-    # 3. リーチのほうが打点が高い（立直が1翻乗る）
+    # 3. リーチのほうが平均和了点が高い（立直が1翻乗る）
     for a in range(len(LIVE_BINS) - 1):
         for b in range(len(TURN_BINS) - 1):
-            x, y = get(a, b, 0), get(a, b, 1)
+            x, y = get(a, b, 1), get(a, b, 2)
             if x and y and x["win"] >= 30 and y["win"] >= 30:
                 vx, vy = x["wp"] / x["win"], y["wp"] / y["win"]
                 if vy < vx:
                     bad.append(
                         f"待ち{a}巡{b}: リーチの平均和了 {vy:.0f} が "
-                        f"ダマ {vx:.0f} より低い")
+                        f"ダマ役あり {vx:.0f} より低い")
 
-    # 4. 待ちが広いほど和了りやすい（同じ巡数・同じリーチ有無で単調）
+    # 4. 待ちが広いほど和了りやすい（系統ごとに見る）
     for b in range(len(TURN_BINS) - 1):
-        for c in (0, 1):
+        for c in (0, 1, 2):
             prev = None
             for a in range(len(LIVE_BINS) - 1):
                 d = get(a, b, c)
@@ -155,7 +177,7 @@ def check(tab) -> list[str]:
                     continue
                 r = d["win"] / d["n"]
                 if prev is not None and r < prev - 0.06:
-                    bad.append(f"巡{b}リーチ{c}: 待ちを広げたのに和了率が下がる "
+                    bad.append(f"巡{b}系統{c}: 待ちを広げたのに和了率が下がる "
                                f"({prev:.3f} → {r:.3f})")
                 prev = r
     return bad
@@ -163,10 +185,10 @@ def check(tab) -> list[str]:
 
 def show(tab):
     out = []
-    out.append(f"{'待ち':>8} {'残り巡':>8} {'':>4} {'件数':>7} {'和了率':>8} "
+    out.append(f"{'待ち':>8} {'残り巡':>8} {'':>9} {'件数':>7} {'和了率':>8} "
                f"{'放銃率':>8} {'平均和了':>9} {'平均放銃':>9}")
     out.append("-" * 70)
-    for c in (0, 1):
+    for c in (0, 1, 2):
         for a in range(len(LIVE_BINS) - 1):
             for b in range(len(TURN_BINS) - 1):
                 d = tab.get(f"{a},{b},{c}")
@@ -174,13 +196,96 @@ def show(tab):
                     continue
                 lv = f"{LIVE_BINS[a]}-{LIVE_BINS[a+1]-1}枚"
                 tv = f"{TURN_BINS[b]}-{TURN_BINS[b+1]-1}巡"
-                tag = "リーチ" if c else "ダマ"
+                tag = ("ダマ役なし", "ダマ役あり", "リーチ")[c]
                 out.append(
-                    f"{lv:>8} {tv:>8} {tag:>4} {d['n']:>7} "
+                    f"{lv:>8} {tv:>8} {tag:>9} {d['n']:>7} "
                     f"{d['win']/d['n']*100:>7.1f}% {d['deal']/d['n']*100:>7.1f}% "
                     f"{(d['wp']/d['win'] if d['win'] else 0):>9.0f} "
                     f"{(d['dp']/d['deal'] if d['deal'] else 0):>9.0f}")
     return "\n".join(out)
+
+
+# ------------------------------------------------------------------ 使う側
+
+def load(path):
+    return json.load(open(path))
+
+
+def _cell(tab, a, b, c, need=40):
+    """(待ち, 残り巡, リーチ) の升。薄ければ隣の巡目の升と足す。
+
+    足りない升を勝手な値で埋めない。足りなければ None を返し、
+    呼び出し側が「判断材料が無い」と分かるようにする。
+    """
+    acc = dict(n=0, win=0, deal=0, wp=0, dp=0)
+    for bb in (b, b - 1, b + 1):
+        d = tab.get(f"{a},{bb},{c}")
+        if d:
+            for k in acc:
+                acc[k] += d[k]
+        if acc["n"] >= need:
+            break
+    return acc if acc["n"] >= need else None
+
+
+def ev(tab, live: int, turns_left: int, riichi: bool):
+    """その状態から局が終わるまでの期待収支（点）。材料が無ければ None。
+
+    和了率 × 平均和了点 − 放銃率 × 平均放銃点 （− リーチ棒）
+    """
+    a, b = _bin(live, LIVE_BINS), _bin(max(0, turns_left), TURN_BINS)
+    d = _cell(tab, a, b, 2 if riichi else 1)
+    if d is None:
+        return None
+    n = d["n"]
+    win = d["win"] / n * (d["wp"] / d["win"] if d["win"] else 0)
+    deal = d["deal"] / n * (d["dp"] / d["deal"] if d["deal"] else 0)
+    return win - deal - (1000 if riichi else 0)
+
+
+def compare(tab, live: int, turns_left: int):
+    """リーチとダマを並べて返す。雀魂の「立直◯◯ / 打牌◯◯」と見比べる用。
+
+    まだ測っていない項は 0 のままにして、勝手な係数を置かない:
+      手変わりの価値（ダマ側）… ダマなら待ちを変えられる。未測定
+    """
+    r = ev(tab, live, turns_left, True)
+    d = ev(tab, live, turns_left, False)
+    if r is None or d is None:
+        return None
+    return {
+        "リーチ": round(r),
+        "ダマ": round(d),
+        "差": round(r - d),
+        "手変わりの価値": 0,      # 未測定。0 のままにしてある
+    }
+
+
+def check_ev(tab) -> list[str]:
+    """期待収支そのものが規則に反していないか。
+
+    表の検査（check）とは別。ここは ev() の出力を見る。
+    """
+    bad = []
+    for b in range(len(TURN_BINS) - 1):
+        # 待ち0枚は和了れないので、リーチの期待収支は必ずマイナス
+        # （リーチ棒1000点を出して、放銃の危険だけを負う）
+        v = ev(tab, 0, TURN_BINS[b], True)
+        if v is not None and v > 0:
+            bad.append(f"待ち0枚・残り{TURN_BINS[b]}巡 のリーチの期待収支が {v:.0f} 点（正）")
+        # 待ちが広いほうが期待収支が高い（同じ巡数・同じリーチ有無）
+        for c in (True, False):
+            prev = None
+            for a in range(len(LIVE_BINS) - 1):
+                v = ev(tab, LIVE_BINS[a], TURN_BINS[b], c)
+                if v is None:
+                    continue
+                if prev is not None and v < prev - 800:
+                    bad.append(
+                        f"残り{TURN_BINS[b]}巡 リーチ{c}: 待ちを広げたのに "
+                        f"期待収支が下がる ({prev:.0f} → {v:.0f})")
+                prev = v
+    return bad
 
 
 def main():
@@ -191,6 +296,11 @@ def main():
     a = ap.parse_args()
     print(f"{a.hands}局からテンパイ状態の表を作ります…")
     tab = measure(a.hands, a.seed)
+    # 印字より先に保存する。前回、印字側の変数名の衝突で
+    # 15分ぶんの計算を落とした
+    if a.out:
+        json.dump(tab, open(a.out, "w"))
+        print(f"→ {a.out}")
     print()
     print(show(tab))
     print()
@@ -200,10 +310,25 @@ def main():
         for b in bad:
             print("   " + b)
     else:
-        print("■ 規則の検査: すべて通過")
-    if a.out:
-        json.dump(tab, open(a.out, "w"))
-        print(f"\n→ {a.out}")
+        print("■ 表の検査: すべて通過")
+    bad2 = check_ev(tab)
+    print()
+    if bad2:
+        print("■ 期待収支の検査で引っかかった箇所")
+        for b in bad2:
+            print("   " + b)
+    else:
+        print("■ 期待収支の検査: すべて通過")
+    print()
+    print("■ リーチとダマの期待収支（点）")
+    print(f"  {'待ち':>7} {'残り巡':>7} {'リーチ':>9} {'ダマ':>9} {'差':>9}")
+    for i in range(len(LIVE_BINS) - 1):
+        for j in range(len(TURN_BINS) - 1):
+            cmp = compare(tab, LIVE_BINS[i], TURN_BINS[j])
+            if cmp:
+                print(f"  {LIVE_BINS[i]:>5}枚 {TURN_BINS[j]:>5}巡 "
+                      f"{cmp['リーチ']:>9} {cmp['ダマ']:>9} {cmp['差']:>+9}")
+
 
 
 if __name__ == "__main__":
