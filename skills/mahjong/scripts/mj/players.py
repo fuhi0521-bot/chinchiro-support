@@ -259,13 +259,19 @@ class Player:
         if s < 0:
             return 1.0
         if s >= 2:
-            return 0.05
-        band = value_band(self.estimate_value(view))
-        form = self.form_quality(view)
-        key = (s, form, band)
-        if key not in PUSH_TABLE:
-            key = (s, FORM_MIXED if s else FORM_BAD, band)
-        v = PUSH_TABLE.get(key, 0.1)
+            # 2シャンテン以下は基準表に行がない（「問わず降りる」）。
+            # ただし **ここで return してはいけない**。以前は即 return していたので、
+            # 2軒リーチ・親リーチ・終盤・着順の補正も threat_level の掛け算も
+            # 全部飛んでいた。結果、2シャンテンの押し率が
+            # 「相手が1軒リーチでも2軒リーチでも同じ」になっていた。
+            v = 0.05
+        else:
+            band = value_band(self.estimate_value(view))
+            form = self.form_quality(view)
+            key = (s, form, band)
+            if key not in PUSH_TABLE:
+                key = (s, FORM_MIXED if s else FORM_BAD, band)
+            v = PUSH_TABLE.get(key, 0.1)
 
         # 補正
         if view.turn >= 12:
