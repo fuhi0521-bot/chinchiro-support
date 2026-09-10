@@ -1,0 +1,342 @@
+<title>何切る検算</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+  :root{
+    --bone:#EFE9DB; --face:#FBF7EE; --edge:#D6CDB8; --sink:#E4DCC8;
+    --ink:#1B1815; --mid:#6A6355; --faint:#9A9280;
+    --sou:#2C7A4B; --sou-soft:#E2EFE5;
+    --man:#A8372A; --pin:#2A4A6B;
+    --warn:#9A6B12;
+    --r:9px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bone:#141E19; --face:#1C2822; --edge:#31423A; --sink:#101915;
+      --ink:#E8E3D6; --mid:#9AA79C; --faint:#6C7A70;
+      --sou:#5FC189; --sou-soft:#172C21;
+      --man:#E08375; --pin:#7FA9D4;
+      --warn:#D9AE55;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bone:#141E19; --face:#1C2822; --edge:#31423A; --sink:#101915;
+    --ink:#E8E3D6; --mid:#9AA79C; --faint:#6C7A70;
+    --sou:#5FC189; --sou-soft:#172C21;
+    --man:#E08375; --pin:#7FA9D4;
+    --warn:#D9AE55;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bone); color:var(--ink);
+    font:400 16px/1.65 "Zen Kaku Gothic New","Hiragino Sans",system-ui,sans-serif;
+    -webkit-text-size-adjust:100%;
+  }
+  .wrap{max-width:640px; margin:0 auto; padding:22px 16px 60px; display:flex; flex-direction:column; gap:20px}
+  header{display:flex; flex-direction:column; gap:6px}
+  h1{font-family:"Shippori Mincho",serif; font-weight:700; font-size:27px; margin:0; letter-spacing:.03em}
+  .sub{margin:0; color:var(--mid); font-size:14px}
+  .panel{background:var(--face); border:1px solid var(--edge); border-radius:var(--r); padding:14px}
+  label.fld{display:flex; flex-direction:column; gap:6px}
+  .lab{font:600 11px/1 "IBM Plex Mono",monospace; letter-spacing:.14em; text-transform:uppercase; color:var(--mid)}
+  input[type=text]{
+    width:100%; padding:11px 12px; border:1px solid var(--edge); border-radius:7px;
+    background:var(--bone); color:var(--ink);
+    font:600 17px/1.3 "IBM Plex Mono",monospace; letter-spacing:.02em;
+  }
+  input[type=text]:focus-visible{outline:2px solid var(--sou); outline-offset:1px}
+  .keys{display:flex; flex-direction:column; gap:6px; margin-top:12px}
+  .krow{display:flex; gap:4px; flex-wrap:wrap}
+  .k{
+    flex:1 1 0; min-width:30px; padding:9px 2px; border:1px solid var(--edge);
+    background:var(--bone); color:var(--ink); border-radius:6px; cursor:pointer;
+    font:600 15px/1 "IBM Plex Mono",monospace;
+  }
+  .k:active{background:var(--sink)}
+  .k.m{color:var(--man)} .k.p{color:var(--pin)} .k.s{color:var(--sou)}
+  .k:focus-visible{outline:2px solid var(--sou); outline-offset:1px}
+  .krow .wide{flex:0 0 62px; color:var(--mid)}
+  .head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
+  .big{font-family:"Shippori Mincho",serif; font-size:30px; font-weight:700; line-height:1}
+  .note{color:var(--mid); font-size:13.5px; margin:0}
+  table{width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums}
+  th{
+    text-align:left; font:600 10.5px/1 "IBM Plex Mono",monospace; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--mid); padding:0 6px 8px; border-bottom:1px solid var(--edge);
+  }
+  th.n,td.n{text-align:right}
+  td{padding:9px 6px; border-bottom:1px solid var(--edge); vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  tr.best td{background:var(--sou-soft)}
+  .tile{font:600 17px/1 "IBM Plex Mono",monospace}
+  .tile.m{color:var(--man)} .tile.p{color:var(--pin)} .tile.s{color:var(--sou)} .tile.z{color:var(--ink)}
+  .cnt{font:600 16px/1 "IBM Plex Mono",monospace}
+  .chips{display:flex; flex-wrap:wrap; gap:3px; margin-top:5px}
+  .chip{
+    font:400 12px/1 "IBM Plex Mono",monospace; padding:3px 5px; border-radius:4px;
+    background:var(--sink); color:var(--mid); white-space:nowrap;
+  }
+  .flag{
+    display:inline-block; font:600 10.5px/1 "IBM Plex Mono",monospace; letter-spacing:.08em;
+    padding:3px 6px; border-radius:4px; background:var(--sou); color:var(--face);
+  }
+  .tie{background:var(--warn)}
+  .ev{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px}
+  .evbox{border:1px solid var(--edge); border-radius:7px; padding:10px; text-align:center; background:var(--bone)}
+  .evbox .v{font:600 22px/1.1 "IBM Plex Mono",monospace; font-variant-numeric:tabular-nums}
+  .evbox .t{font:600 10.5px/1 "IBM Plex Mono",monospace; letter-spacing:.1em; color:var(--mid); text-transform:uppercase}
+  .evbox.win{border-color:var(--sou); background:var(--sou-soft)}
+  .toggle{display:flex; gap:6px; align-items:center; margin-top:10px; flex-wrap:wrap}
+  .toggle button{
+    padding:7px 11px; border:1px solid var(--edge); background:var(--bone); color:var(--mid);
+    border-radius:6px; font:600 13px/1 inherit; font-family:inherit; cursor:pointer;
+  }
+  .toggle button[aria-pressed="true"]{background:var(--sou); border-color:var(--sou); color:var(--face)}
+  .toggle button:focus-visible{outline:2px solid var(--sou); outline-offset:1px}
+  .err{color:var(--man); font-size:14px; margin:0}
+  .foot{color:var(--faint); font-size:12.5px; line-height:1.75; margin:0}
+  .foot b{color:var(--mid); font-weight:600}
+  hr{border:0; border-top:1px solid var(--edge); margin:0}
+  @media (max-width:420px){ .ev{grid-template-columns:1fr} }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>何切る検算</h1>
+    <p class="sub">手牌を入れると、切る牌ごとの受け入れと、テンパイなら リーチ／ダマ の期待収支を出します。</p>
+  </header>
+
+  <section class="panel">
+    <label class="fld" for="hand">
+      <span class="lab">手牌</span>
+      <input type="text" id="hand" value="778m45667p123566s" autocapitalize="off" autocorrect="off" spellcheck="false">
+    </label>
+    <div class="keys" id="keys"></div>
+    <label class="fld" for="seen" style="margin-top:12px">
+      <span class="lab">河などで見えている牌（任意）</span>
+      <input type="text" id="seen" value="" placeholder="例: 5s9s1z　空欄なら何も見えていない前提" autocapitalize="off" autocorrect="off" spellcheck="false">
+    </label>
+  </section>
+
+  <p class="err" id="err" hidden></p>
+
+  <section class="panel" id="out"></section>
+
+  <hr>
+  <p class="foot">
+    <b>書き方</b> 数字のあとに萬=m・筒=p・索=s・字=z（1z東 2z南 3z西 4z北 5z白 6z發 7z中）。
+    例 <code>778m45667p123566s</code>。13枚でも14枚でも入ります。<br>
+    <b>受け入れ枚数</b>は「見えている牌」を引いた残り枚数です。空欄なら4枚ずつ生存として数えます。<br>
+    <b>期待収支</b>は、この局が終わるまでの点数の出入りをシミュレータ2500局から実測した表を引いています。
+    待ち枚数と残り巡数の升ごとの平均で、材料が足りない升は「データ不足」と出ます。
+    <b>役の有無</b>は自分で切り替えてください（役なしのダマはロンで和了れないので、別の表を引きます）。
+  </p>
+</div>
+
+<script>
+const NAMES=(()=>{const a=[];for(const s of "mps")for(let i=1;i<=9;i++)a.push(i+s);
+  for(const z of ["東","南","西","北","白","發","中"])a.push(z);return a;})();
+const SUIT=i=>i<9?"m":i<18?"p":i<27?"s":"z";
+
+function stdShanten(c0,melds){
+  melds=melds||0; const c=c0.slice(); let best=8;
+  function rec(i,m,t,pair){
+    while(i<34&&c[i]===0)i++;
+    if(i>=34){
+      const mm=Math.min(m+melds,4); let tt=t;
+      if(mm+tt+pair>5) tt=Math.max(0,5-mm-pair);
+      let s=8-2*mm-tt-pair;
+      if(pair===0&&mm+tt===5) s+=1;
+      if(s<best) best=s; return;
+    }
+    if(c[i]>=3){c[i]-=3;rec(i,m+1,t,pair);c[i]+=3;}
+    if(i<27&&i%9<=6&&c[i+1]>0&&c[i+2]>0){c[i]--;c[i+1]--;c[i+2]--;rec(i,m+1,t,pair);c[i]++;c[i+1]++;c[i+2]++;}
+    if(c[i]>=2){c[i]-=2; if(!pair) rec(i,m,t,1); rec(i,m,t+1,pair); c[i]+=2;}
+    if(i<27&&i%9<=7&&c[i+1]>0){c[i]--;c[i+1]--;rec(i,m,t+1,pair);c[i]++;c[i+1]++;}
+    if(i<27&&i%9<=6&&c[i+2]>0){c[i]--;c[i+2]--;rec(i,m,t+1,pair);c[i]++;c[i+2]++;}
+    c[i]--;rec(i,m,t,pair);c[i]++;
+  }
+  rec(0,0,0,0); return best;
+}
+function chiitoi(c){let p=0,k=0;for(let i=0;i<34;i++){if(c[i]>=2)p++;if(c[i]>0)k++;}let s=6-p;if(k<7)s+=7-k;return s;}
+const YAO=[0,8,9,17,18,26,27,28,29,30,31,32,33];
+function kokushi(c){let k=0,p=0;for(const t of YAO){if(c[t]>0)k++;if(c[t]>=2)p=1;}return 13-k-p;}
+function shanten(c){return Math.min(stdShanten(c,0),chiitoi(c),kokushi(c));}
+function ukeire(c,seen){
+  const s=shanten(c), acc=[];
+  for(let t=0;t<34;t++){
+    const rem=4-(seen?seen[t]:0)-c[t];
+    if(rem<=0) continue;
+    c[t]++; const s2=shanten(c); c[t]--;
+    if(s2<s) acc.push([t,rem]);
+  }
+  return [s,acc];
+}
+function parse(str){
+  const c=new Array(34).fill(0); let buf=[];
+  for(const ch of (str||"").replace(/\s/g,"")){
+    if(ch>="1"&&ch<="9") buf.push(+ch);
+    else if("mpsz".includes(ch)){
+      const base={m:0,p:9,s:18,z:27}[ch];
+      for(const d of buf){
+        if(ch==="z"&&d>7) throw new Error("字牌は 1z〜7z です");
+        c[base+d-1]++;
+      }
+      buf=[];
+    } else throw new Error("読めない文字があります: "+ch);
+  }
+  if(buf.length) throw new Error("最後に m / p / s / z が要ります");
+  for(let i=0;i<34;i++) if(c[i]>4) throw new Error(NAMES[i]+" が5枚以上あります");
+  return c;
+}
+// 実測表: "待ち枚数の升,残り巡数の升,系統" -> [期待収支, 件数]
+// 系統 0=ダマ役なし 1=ダマ役あり 2=リーチ
+const EV={"3,2,0":[168,186],"2,1,2":[1468,320],"4,3,1":[816,450],"4,4,0":[1442,84],"4,2,1":[730,525],"4,3,0":[766,192],"3,2,1":[413,587],"3,3,1":[838,448],"5,3,2":[5290,30],"4,1,2":[3513,305],"4,2,2":[3978,414],"4,4,1":[1612,195],"4,5,1":[2923,30],"2,3,1":[900,227],"2,3,2":[2395,280],"2,2,2":[1689,343],"3,1,1":[358,469],"3,4,1":[1142,215],"3,5,1":[2841,41],"3,0,1":[-75,351],"3,1,0":[226,137],"4,2,0":[978,203],"3,3,0":[517,138],"2,4,2":[2991,114],"4,3,2":[4936,389],"4,4,2":[5832,185],"3,0,0":[-303,100],"2,4,1":[1549,92],"2,0,2":[493,247],"3,0,2":[776,294],"3,2,2":[2265,549],"3,3,2":[2261,516],"3,1,2":[1522,448],"3,5,2":[3556,50],"2,1,0":[54,89],"2,1,1":[182,321],"2,0,1":[17,282],"2,2,1":[452,331],"2,2,0":[669,96],"3,4,0":[1383,64],"3,4,2":[2740,271],"1,0,1":[-434,53],"1,1,1":[-361,38],"4,1,1":[769,394],"4,0,2":[2563,175],"4,0,1":[662,232],"4,1,0":[779,168],"2,0,0":[-327,60],"4,0,0":[-41,86],"2,3,0":[306,49]};
+const LIVE=[0,1,2,4,6,9,99], TURN=[0,3,6,9,12,15,99];
+const bin=(v,b)=>{for(let i=0;i<b.length-1;i++) if(b[i]<=v&&v<b[i+1]) return i; return b.length-2;};
+function ev(live,left,kind){
+  const a=bin(live,LIVE), b=bin(Math.max(0,left),TURN);
+  for(const bb of [b,b-1,b+1]){
+    const cell=EV[a+","+bb+","+kind];
+    if(cell&&cell[1]>=40) return {v:cell[0]-(kind===2?1000:0), n:cell[1]};
+  }
+  return null;
+}
+
+let hasYaku=true, turnsLeft=9;
+const $=id=>document.getElementById(id);
+
+function tileHTML(t){return '<span class="tile '+SUIT(t)+'">'+NAMES[t]+'</span>';}
+
+function render(){
+  const err=$("err"), out=$("out");
+  let c, seen;
+  try{ c=parse($("hand").value); seen=parse($("seen").value); }
+  catch(e){ err.textContent=e.message; err.hidden=false; out.innerHTML=""; return; }
+  err.hidden=true;
+  const n=c.reduce((a,b)=>a+b,0);
+  if(n===0){ out.innerHTML='<p class="note">手牌を入れてください。</p>'; return; }
+  if(n%3===0||n>14){ out.innerHTML='<p class="note">'+n+'枚です。13枚（何を引くか）か14枚（何を切るか）にしてください。</p>'; return; }
+  for(let i=0;i<34;i++) if(c[i]+seen[i]>4){ err.textContent=NAMES[i]+" が手牌と見えている牌で5枚以上になります"; err.hidden=false; out.innerHTML=""; return; }
+
+  const html=[];
+  if(n%3===1){
+    const [s,acc]=ukeire(c.slice(),seen);
+    const tot=acc.reduce((a,x)=>a+x[1],0);
+    html.push('<div class="head"><span class="big">'+(s===0?"テンパイ":s+"シャンテン")+'</span>');
+    if(s>0) html.push('<span class="note">受け入れ '+acc.length+'種'+tot+'枚</span>');
+    html.push('</div>');
+    if(s===0){ html.push(waitBlock(acc,tot)); }
+    else{ html.push('<div class="chips">'+acc.map(x=>'<span class="chip">'+NAMES[x[0]]+'<b> '+x[1]+'</b></span>').join("")+'</div>'); }
+  }else{
+    const base=shanten(c);
+    const rows=[];
+    for(let d=0;d<34;d++){
+      if(!c[d]) continue;
+      c[d]--;
+      const [s,acc]=ukeire(c.slice(),seen);
+      c[d]++;
+      rows.push({d,s,acc,tot:acc.reduce((a,x)=>a+x[1],0)});
+    }
+    rows.sort((a,b)=> a.s-b.s || b.tot-a.tot || a.d-b.d);
+    const top=rows[0], ties=rows.filter(r=>r.s===top.s&&r.tot===top.tot);
+    html.push('<div class="head"><span class="big">'+(base===0?"テンパイ":base+"シャンテン")+'</span>');
+    if(ties.length>1) html.push('<span class="flag tie">同数 '+ties.length+'通り</span>');
+    html.push('</div>');
+    if(ties.length>1) html.push('<p class="note">受け入れが並んでいます。ここは枚数では決まりません — 安全度・打点・手役で選ぶ場面です。</p>');
+    html.push('<table><thead><tr><th>切る牌</th><th class="n">残り</th><th class="n">受け入れ</th><th>その内訳</th></tr></thead><tbody>');
+    for(const r of rows){
+      const best=r.s===top.s&&r.tot===top.tot;
+      html.push('<tr class="'+(best?"best":"")+'"><td>'+tileHTML(r.d)+'</td>'
+        +'<td class="n cnt">'+(r.s===0?"聴":r.s)+'</td>'
+        +'<td class="n cnt">'+r.tot+'</td>'
+        +'<td><span class="note">'+r.acc.length+'種</span><div class="chips">'
+        +r.acc.map(x=>'<span class="chip">'+NAMES[x[0]]+' '+x[1]+'</span>').join("")
+        +'</div></td></tr>');
+    }
+    html.push('</tbody></table>');
+    if(top.s===0) html.push(waitBlock(top.acc, top.tot, top.d));
+  }
+  out.innerHTML=html.join("");
+  bindEV();
+}
+
+function waitBlock(acc,tot,cut){
+  const h=[];
+  h.push('<hr style="margin:14px 0">');
+  h.push('<div class="head"><span class="lab">待ち</span><span class="tile">'
+    +acc.map(x=>NAMES[x[0]]).join(" ")+'</span><span class="note">残り '+tot+'枚</span></div>');
+  if(cut!==undefined) h.push('<p class="note">'+NAMES[cut]+' を切ったときの形です。</p>');
+  h.push('<div class="toggle"><span class="lab">ダマで</span>'
+    +'<button id="yy" aria-pressed="'+hasYaku+'">役あり</button>'
+    +'<button id="yn" aria-pressed="'+(!hasYaku)+'">役なし</button>'
+    +'<span class="lab" style="margin-left:8px">残り</span>'
+    +'<button id="tm">−</button><span class="cnt" id="tv">'+turnsLeft+'</span><button id="tp">＋</button>'
+    +'<span class="note">巡</span></div>');
+  const r=ev(tot,turnsLeft,2), d=ev(tot,turnsLeft,hasYaku?1:0);
+  if(!r||!d){
+    h.push('<p class="note" style="margin-top:10px">この待ち枚数と巡目の組み合わせは、実測の材料が足りません（データ不足）。</p>');
+  }else{
+    const rw=r.v>d.v;
+    h.push('<div class="ev">'
+      +'<div class="evbox '+(rw?"win":"")+'"><div class="t">リーチ</div><div class="v">'+(r.v>0?"+":"")+r.v+'</div></div>'
+      +'<div class="evbox '+(!rw?"win":"")+'"><div class="t">ダマ</div><div class="v">'+(d.v>0?"+":"")+d.v+'</div></div>'
+      +'</div>');
+    h.push('<p class="note" style="margin-top:8px">'+(rw?"リーチ":"ダマ")+'が '+Math.abs(r.v-d.v)
+      +'点 有利（実測 リーチ'+r.n+'件 / ダマ'+d.n+'件）。この局が終わるまでの点数の出入りです。</p>');
+    if(!hasYaku) h.push('<p class="note">役なしのダマはロンで和了れません。ツモと、あとで手が変わって役がつく分だけが入っています。</p>');
+  }
+  return h.join("");
+}
+
+function bindEV(){
+  const yy=$("yy"), yn=$("yn"), tm=$("tm"), tp=$("tp");
+  if(!yy) return;
+  yy.onclick=()=>{hasYaku=true; render();};
+  yn.onclick=()=>{hasYaku=false; render();};
+  tm.onclick=()=>{turnsLeft=Math.max(0,turnsLeft-1); render();};
+  tp.onclick=()=>{turnsLeft=Math.min(18,turnsLeft+1); render();};
+}
+
+(function keys(){
+  const box=$("keys");
+  for(const [s,cls,label] of [["m","m","萬"],["p","p","筒"],["s","s","索"]]){
+    const row=document.createElement("div"); row.className="krow";
+    const tag=document.createElement("button");
+    tag.className="k wide"; tag.type="button"; tag.textContent=label; tag.disabled=true;
+    row.appendChild(tag);
+    for(let i=1;i<=9;i++){
+      const b=document.createElement("button");
+      b.type="button"; b.className="k "+cls; b.textContent=i;
+      b.onclick=()=>add(i+s);
+      row.appendChild(b);
+    }
+    box.appendChild(row);
+  }
+  const row=document.createElement("div"); row.className="krow";
+  const tag=document.createElement("button");
+  tag.className="k wide"; tag.type="button"; tag.textContent="字"; tag.disabled=true;
+  row.appendChild(tag);
+  ["東","南","西","北","白","發","中"].forEach((z,i)=>{
+    const b=document.createElement("button");
+    b.type="button"; b.className="k"; b.textContent=z;
+    b.onclick=()=>add((i+1)+"z");
+    row.appendChild(b);
+  });
+  const del=document.createElement("button");
+  del.type="button"; del.className="k"; del.textContent="⌫";
+  del.onclick=()=>{ const f=$("hand"); f.value=f.value.slice(0,-2); render(); };
+  row.appendChild(del);
+  const clr=document.createElement("button");
+  clr.type="button"; clr.className="k"; clr.textContent="全消";
+  clr.onclick=()=>{ $("hand").value=""; render(); };
+  row.appendChild(clr);
+  box.appendChild(row);
+})();
+
+function add(tok){ $("hand").value += tok; render(); }
+$("hand").addEventListener("input", render);
+$("seen").addEventListener("input", render);
+render();
+</script>
