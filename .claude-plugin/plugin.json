@@ -1,0 +1,9 @@
+{
+  "name": "mahjong",
+  "description": "麻雀（日本リーチ麻雀）専用のAIエージェント。何切る・押し引き・鳴き・点数計算・役・待ち・危険度・オーラス条件・牌譜の振り返りに、検証済みの計算エンジンで裏づけて即答する。",
+  "version": "1.0.0",
+  "author": {
+    "name": "fuhi0521"
+  },
+  "keywords": ["mahjong", "riichi", "麻雀", "雀魂", "mahjong-soul"]
+}
