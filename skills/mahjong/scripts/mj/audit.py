@@ -63,11 +63,35 @@ class Audit:
         self.hand = {}                           # seat -> この局の経過
         self.late = {n: [] for n in names}       # 降り遅れ（脅威発生から降りるまでの巡数）
         self.riichi = {n: [] for n in names}     # (巡目, 待ち枚数, 先制か)
+        # 鳴きの追跡。seat -> dict(name, goal, yaku(役が乗った), best(最小シャンテン))
+        # want_call は「向かう役がある」ことを鳴きの必須条件にしている。
+        # その当てが実際に成立しているかは、一度も測っていなかった。
+        self.calls = {}
+        self.call_stat = {n: collections.Counter() for n in names}
+
+    def note_call(self, name, seat, goal):
+        g = goal[0] if goal else "なし"
+        self.calls[seat] = dict(name=name, goal=g, yaku=False, best=99, n=0)
+
+    def track_call(self, seat, view, player):
+        """鳴いた手の経過。役が乗ったか、どこまで進んだか。"""
+        c = self.calls.get(seat)
+        if c is None or player is None:
+            return
+        c["n"] += 1
+        try:
+            if player.open_yaku_now(view):
+                c["yaku"] = True
+        except Exception:
+            pass
+        c["best"] = min(c["best"], fast.shanten(view.me.hand, view.me.called))
 
     def record(self, name, seat, view, tile, threats, folding, player=None):
         me = view.me
         s = self.stat[name]
         s["打牌"] += 1
+        if not me.menzen:
+            self.track_call(seat, view, player)
         hand = list(me.hand)
         h = self.hand.setdefault(seat, dict(name=name, threat=None, fold=None))
 
@@ -116,6 +140,22 @@ class Audit:
                 try:
                     if player.dama_ron_value(view, tile) <= 0:
                         s["ロンできない手で押した"] += 1
+                        # 門前と副露では意味がまるで違う。
+                        #   門前 … ロンは出来ないが門前清自摸和で和了れる。押す理由はある
+                        #   副露 … ツモっても役が無い。**いま和了る手段がゼロ**
+                        # 混ぜて数えていたので、副露のほうだけ分けて出す。
+                        if me.menzen:
+                            s["└ 門前（ツモなら和了れる）"] += 1
+                        else:
+                            s["└ 副露（和了る手段がゼロ）"] += 1
+                            # 相手がリーチ（level 1.0）か、副露読み（0.5前後）か。
+                            # push_value は最後に threat_level で 1.0 と混ぜるので、
+                            # level が低いと「和了れない手」でもほぼ押しに倒れる。
+                            # その比率を知らないと、次にどこを直すか決められない。
+                            if max(lv for _, lv in threats) >= 0.99:
+                                s["　└ 相手リーチ"] += 1
+                            else:
+                                s["　└ 副露読みのみ"] += 1
                 except Exception:
                     pass
             # --- 染め手にその色を押していないか
@@ -195,6 +235,26 @@ class Audit:
                 s["降りきった"] += 1
         self.hand.clear()
 
+        winners = {w[0] for w in res.winners} if res.winners else set()
+        for seat, c in self.calls.items():
+            cs = self.call_stat[c["name"]]
+            cs["鳴いた局"] += 1
+            cs[f"目標:{c['goal']}"] += 1
+            if c["yaku"]:
+                cs["役が乗った"] += 1
+            else:
+                cs["役が乗らないまま終局"] += 1
+                cs[f"不発:{c['goal']}"] += 1
+            if c["best"] <= 0:
+                cs["テンパイまで到達"] += 1
+                if not c["yaku"]:
+                    cs["└ 役なしテンパイ止まり"] += 1
+            if seat in winners:
+                cs["和了"] += 1
+            if res.kind == "ron" and res.loser == seat:
+                cs["放銃"] += 1
+        self.calls.clear()
+
     def deal_in(self, seat, winner):
         rec = self.last.get(seat)
         if not rec:
@@ -240,11 +300,11 @@ def run(hands: int, seed: int, lineup: str, tol_safe: float | None = None,
 
     def hook(self, view, forbidden=frozenset()):
         threats = self._reads(view)
-        level = max((l for _, l in threats), default=0.0)
-        folding = False
-        if level > 0:
-            folding = not self._should_push(self.push_value(view, level))
+        # **打ち手が実際に通った分岐を読む。** 以前はここで _should_push を
+        # もう一度引いて「降りたか」を決めていたが、_should_push は確率的なので
+        # 記録と実際の分岐が食い違ううえ、余分な乱数消費で挙動そのものが変わっていた。
         tile, declare = orig(self, view, forbidden)
+        folding = getattr(self, "last_branch", None) == "fold"
         audit.record(self.name, view.seat, view, tile, threats, folding, self)
         if declare:
             me = view.me
@@ -255,7 +315,16 @@ def run(hands: int, seed: int, lineup: str, tol_safe: float | None = None,
             audit.declare(self.name, view.seat, view, waits, first)
         return tile, declare
 
+    orig_call = pl.Player.want_call
+
+    def call_hook(self, view, options):
+        choice = orig_call(self, view, options)
+        if choice is not None:
+            audit.note_call(self.name, view.seat, view.me.yaku_goal)
+        return choice
+
     pl.Player.discard = hook
+    pl.Player.want_call = call_hook
     try:
         rng = random.Random(seed)
         for k in range(hands):
@@ -271,6 +340,7 @@ def run(hands: int, seed: int, lineup: str, tol_safe: float | None = None,
                 print(f"  {k + 1}/{hands} 局", flush=True)
     finally:
         pl.Player.discard = orig
+        pl.Player.want_call = orig_call
     return audit
 
 
@@ -355,17 +425,48 @@ def report(audit) -> str:
     out.append("  在庫使い切り ＝ 唯一の安全牌を使い、次巡は危険牌しか残らない")
     out.append("  安全牌0枚で押していると、次巡に降りたくなっても降りられない。")
 
+    out.append("\n■ 鳴きの当てが成立しているか")
+    out.append("  want_call は「向かう役がある」を鳴きの必須条件にしている。")
+    out.append("  その当てが実際に成立したかを、局単位で数える。")
+    out.append("")
+    out.append(f"  {'雀士':<10} {'鳴いた局':>8} {'役が乗った':>10} {'テンパイ到達':>12} "
+               f"{'役なしテンパイ止まり':>20} {'和了':>6} {'放銃':>6}")
+    out.append("-" * 84)
+    for name, cs in audit.call_stat.items():
+        n = cs["鳴いた局"] or 1
+        out.append(
+            f"  {name:<10} {cs['鳴いた局']:>8} {cs['役が乗った'] / n * 100:>9.1f}% "
+            f"{cs['テンパイまで到達'] / n * 100:>11.1f}% "
+            f"{cs['└ 役なしテンパイ止まり']:>13} ({cs['└ 役なしテンパイ止まり'] / n * 100:>4.1f}%) "
+            f"{cs['和了'] / n * 100:>5.1f}% {cs['放銃'] / n * 100:>5.1f}%")
+    out.append("")
+    out.append("  向かった役の内訳と、そのうち不発に終わった数:")
+    goals = sorted({k.split(":", 1)[1] for cs in audit.call_stat.values()
+                    for k in cs if k.startswith("目標:")})
+    out.append(f"  {'役':<10} {'鳴いた数':>9} {'不発':>7} {'不発率':>9}")
+    out.append("-" * 40)
+    for g in goals:
+        tot = sum(cs[f"目標:{g}"] for cs in audit.call_stat.values())
+        miss = sum(cs[f"不発:{g}"] for cs in audit.call_stat.values())
+        out.append(f"  {g:<10} {tot:>9} {miss:>7} {miss / (tot or 1) * 100:>8.1f}%")
+    out.append("")
+    out.append("  不発率が高い役は、鳴きの門が緩すぎるということ。")
+
     out.append("\n■ ロンできない手で押していないか")
-    out.append(f"  {'雀士':<10} {'ダマのテンパイ押し':>18} {'ロン不可の手で押した':>20} {'割合':>8}")
-    out.append("-" * 62)
+    out.append(f"  {'雀士':<10} {'ダマのテンパイ押し':>18} {'ロン不可':>10} "
+               f"{'うち門前':>9} {'うち副露':>9} {'副露の割合':>11}")
+    out.append("-" * 74)
     for name, s2 in audit.stat.items():
         n = s2["役なしか判定したテンパイ押し"] or 1
         out.append(f"  {name:<10} {s2['役なしか判定したテンパイ押し']:>18} "
-                   f"{s2['ロンできない手で押した']:>20} "
-                   f"{s2['ロンできない手で押した'] / n * 100:>7.1f}%")
+                   f"{s2['ロンできない手で押した']:>10} "
+                   f"{s2['└ 門前（ツモなら和了れる）']:>9} "
+                   f"{s2['└ 副露（和了る手段がゼロ）']:>9} "
+                   f"{s2['└ 副露（和了る手段がゼロ）'] / n * 100:>10.1f}%")
     out.append("")
-    out.append("  役なしのダマテンは、テンパイしていても出アガリの権利が無い。")
-    out.append("  押す理由にならないのに押していれば、放銃の危険だけを負っている。")
+    out.append("  門前の役なしテンパイは、ロンは出来ないが門前清自摸和で和了れる。")
+    out.append("  **副露の役なしテンパイは、ツモっても役が無い＝いま和了る手段がゼロ。**")
+    out.append("  それでテンパイ扱いで押していれば、放銃の危険だけを負っている。")
 
     out.append("\n■ 染め手が見えている相手に、その色を押していないか")
     out.append(f"  {'雀士':<10} {'染めが見える相手への打牌':>24} {'その色を押した':>16} {'割合':>8}")

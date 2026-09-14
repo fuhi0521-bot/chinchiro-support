@@ -46,6 +46,10 @@ class Style:
     push: float = 0.50  # これ以上の押し価値があれば押す（低い＝攻撃的）
     call_min_value: int = 3900  # 鳴く最低打点
     call_max_shanten: int = 2  # 何シャンテンまで鳴くか
+    # タンヤオを当てにして鳴くとき、手に残っていてよい么九牌の枚数。
+    # 実測でタンヤオの当ては 47.8% が不発だった（鳴いた46回中22回）。
+    # 残した么九牌はぜんぶ落とさないと役にならないので、多いほど外れる。
+    tanyao_yaochu_max: int = 2
     damaten_value: int = 8000  # これ以上ダマで打点があればリーチしない
     riichi_bad_wait_cheap: bool = True  # 悪形・安手でもリーチするか
     safety_weight: float = 1.0  # 押すときの安全牌への寄り
@@ -253,11 +257,56 @@ class Player:
             return FORM_MIXED
         return FORM_BAD
 
+    def open_yaku_now(self, view) -> bool:
+        """副露手に、いま役が乗っているか（乗る形になっているか）。
+
+        門前なら常に True。ロンが出来なくても門前清自摸和で和了れるので、
+        「テンパイしている」ことに意味がある。
+
+        副露手はそうではない。**役が無ければツモっても和了れない**ので、
+        テンパイしていても和了る手段がゼロ。それをテンパイ扱いで押すと
+        放銃の危険だけを負う。実測で、ロン不可の押しの約85%がこの副露側だった。
+        """
+        me = view.me
+        if me.menzen:
+            return True
+        # テンパイしているなら、形の見立てではなく **実際に点数計算して確かめる**。
+        # 見立てだけだと「タンヤオだが待ちが么九牌」を取りこぼす。
+        # 手牌はタンヤオに見えるのに、和了ると么九牌が入って役が消える形。
+        if sum(me.hand) % 3 == 2 and fast.shanten(me.hand, me.called) == 0:
+            for t in range(NUM_TILES):
+                if me.hand[t] and self.dama_ron_value(view, t) > 0:
+                    return True
+            return False
+        tiles = [t for t in range(NUM_TILES) for _ in range(me.hand[t])]
+        tiles += [t for m in me.melds for t in m.tiles]
+        # 役牌（刻子・槓子になっていれば確定）
+        for t in list(DRAGONS) + [view.seat_wind, view.round_wind]:
+            if me.hand[t] >= 3 or any(m.tile == t and m.kind != "chi" for m in me.melds):
+                return True
+        # 断幺九
+        if all(t not in YAOCHU_SET for t in tiles):
+            return True
+        # 混一色・清一色（数牌が1色に収まっている）
+        if len({t // 9 for t in tiles if t < 27}) <= 1:
+            return True
+        # 対々和（チーが無く、手牌が対子・刻子だけ）
+        if all(m.kind != "chi" for m in me.melds) and all(
+                me.hand[t] in (0, 2, 3, 4) for t in range(NUM_TILES)):
+            return True
+        return False
+
     def push_value(self, view, threat_level: float) -> float:
         me = view.me
         s = fast.shanten(me.hand, me.called)
         if s < 0:
             return 1.0
+        # 和了る手段がゼロの副露テンパイは、テンパイとして押さない。
+        # 手変わりで役が付く目はあるので（実測で29%が最終的に和了）、
+        # 切り捨てずに1シャンテン相当まで落とす。
+        open_yaku = self.open_yaku_now(view)
+        if s == 0 and not open_yaku:
+            s = 1
         if s >= 2:
             # 2シャンテン以下は基準表に行がない（「問わず降りる」）。
             # ただし **ここで return してはいけない**。以前は即 return していたので、
@@ -266,8 +315,19 @@ class Player:
             # 「相手が1軒リーチでも2軒リーチでも同じ」になっていた。
             v = 0.05
         else:
-            band = value_band(self.estimate_value(view))
-            form = self.form_quality(view)
+            value = self.estimate_value(view)
+            # **役が無ければドラは翻にならない。** estimate_value は
+            # ドラと赤を数えるだけで役の有無を見ず、最後に max(1, han) で
+            # 切り上げるので、役なしの副露手でも 1300〜5200点に見えていた。
+            # 赤2枚の役なし副露が「5200点の手」として押していたことになる。
+            #
+            # 形のほうも同じ扱いにする。良形かどうかは「和了れる手」の話で、
+            # 役が無い副露手にとっては意味がない。表の最下行を引かせる。
+            # （1シャンテン・好形・安手は 0.45＝押し率87%。ここに落ちていた）
+            if not open_yaku:
+                value = 0
+            band = value_band(value)
+            form = FORM_BAD if not open_yaku else self.form_quality(view)
             key = (s, form, band)
             if key not in PUSH_TABLE:
                 key = (s, FORM_MIXED if s else FORM_BAD, band)
@@ -335,6 +395,11 @@ class Player:
         forbidden は切れない牌（喰い替え禁止）。
         """
         me = view.me
+        # 実際に通った分岐。監査はこれを読む。
+        # 以前は監査フック側で _should_push をもう一度引いて「降りたか」を
+        # 決めていた。_should_push は確率的なので、記録と実際の分岐が食い違い、
+        # しかも余分に乱数を消費して打ち手の挙動そのものを変えていた。
+        self.last_branch = None
         if me.riichi:
             return (me.drawn if me.drawn is not None else self._any_tile(me)), False
 
@@ -345,8 +410,10 @@ class Player:
         # 2副露（0.5）なら「よほど絶望的でなければ押す」に自然に落ちる。
         if level > 0:
             if not self._should_push(self.push_value(view, level)):
+                self.last_branch = "fold"
                 return self._fold_discard(view, threats, forbidden), False
 
+        self.last_branch = "push"
         return self._push_discard(view, threats, level, forbidden)
 
     def _any_tile(self, me):
@@ -385,11 +452,14 @@ class Player:
                 weight = self._threat_value(view, p) / 5200.0
             else:
                 weight = 1.5 if p.seat == view.game.dealer else 1.0
-            if self.style.river_read:
+            if p.river_counts[tile] or tile in p.passed:
+                # 現物、またはリーチ後に通った牌。**確率ではなくルール上の帰結**で
+                # 当たらない（見逃せば永久フリテン。passed はリーチ者にしか入らない）。
+                # river_read を切った雀士は、後者を 0.3 と見積っていて、
+                # そのせいで現物より受け入れの広い牌を選ぶことがあった。
+                r = 0.0
+            elif self.style.river_read:
                 r = reading.wait_risk(p, tile, seen, view.me.hand)
-            elif tile in p.passed:
-                # リーチ後に通った牌。現物と同じ
-                r = 0.3
             else:
                 r = danger([tile], p.river_counts, seen, late=view.turn >= 8)[0].risk
             total += r * level * weight
@@ -415,6 +485,12 @@ class Player:
         if floor < 0.5:
             tol = min(tol, self.style.fold_tolerance_safe)
         near = [t for t in candidates if risks[t] <= floor + tol]
+        # **全ての脅威に通る牌があるなら、それ以外は選ばない。**
+        # 降りると決めた後は手を残す価値がほぼ無いので、受け入れの広さで
+        # 現物を押しのけてはいけない。実測で降り打牌の2〜8%がこれだった。
+        genbutsu = [t for t in candidates if risks[t] <= 1e-9]
+        if genbutsu:
+            near = genbutsu
         if len(near) == 1:
             return near[0]
         best, best_score = None, -1e9
@@ -953,8 +1029,8 @@ class Player:
             called_tiles += [tile] * 3
         if all(t not in YAOCHU_SET for t in called_tiles):
             yaochu_in_hand = sum(me.hand[t] for t in YAOCHU_SET)
-            # 么九牌が2枚までなら、鳴いた後に落として断幺九に向かえる
-            if yaochu_in_hand <= 2:
+            # 残した么九牌は全部落とさないとタンヤオにならない。枚数で門を絞る。
+            if yaochu_in_hand <= self.style.tanyao_yaochu_max:
                 return ("tanyao",)
         return None
 
