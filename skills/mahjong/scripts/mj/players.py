@@ -11,7 +11,7 @@ import math
 import random
 from dataclasses import dataclass
 
-from . import fast, placement, reading, wall
+from . import fast, placement, reading, riichi_ev, wall
 from .safety import danger
 from .tiles import DRAGONS, HONOR, NUM_TILES, YAOCHU_SET, rank_of
 
@@ -61,6 +61,10 @@ class Style:
     # 1 は和了率・放銃率ではノイズの範囲で 0 と差がなく、副露率が実戦値
     # (32.6%) に近い。不発率だけが明確に違うので 0 を既定にしている。
     tanyao_yaochu_max: int = 0
+    # 実測表（無作為化して測ったもの）による「リーチを止める」拒否権。
+    # 曲げさせる方向には使わない（表はこの手の打点を見ていないので）。
+    riichi_ev_veto: bool = False
+    riichi_ev_margin: int = 200   # ダマがこれだけ上回っていたら止める（点）
     damaten_value: int = 8000  # これ以上ダマで打点があればリーチしない
     riichi_bad_wait_cheap: bool = True  # 悪形・安手でもリーチするか
     safety_weight: float = 1.0  # 押すときの安全牌への寄り
@@ -787,6 +791,22 @@ class Player:
         # 「役がないのにダマで十分」と誤判定しない
         dama = (self.dama_ron_value(view, discard) if st.dama_exact
                 else self.estimate_value(view, dama=True))
+
+        # 実測表による拒否権。**曲げさせる方向には使わない。**
+        #
+        # 表は (待ち枚数, 残り巡数) だけで引くので、この手の打点を見ていない。
+        # 「曲げたほうが得」と言われても、それは平均の話でしかない。
+        # 逆に「ダマのほうが明確に得」と出たセルは、打点に関係なく成り立つ
+        # 場況（終盤・狭い待ち）なので、そこだけ止める。
+        #
+        # 使うのは無作為化した表。エージェント自身の判断が作った表だと、
+        # ダマ側が実際より弱く見えて、リーチを過剰に勧める。
+        if st.riichi_ev_veto:
+            adv = riichi_ev.advise(width, 18 - view.turn, dama > 0,
+                                   path=riichi_ev.RANDOMIZED_TABLE)
+            if adv is not None and adv["差"] <= -st.riichi_ev_margin:
+                return False
+
         if dama >= st.damaten_value and width <= 4:
             return False
         # 悪形・安手・終盤
@@ -1230,6 +1250,11 @@ def make_best() -> "Player":
             call_max_shanten=3,
             damaten_value=12000,
             riichi_bad_wait_cheap=True,
+            # 実測表による「リーチを止める」拒否権。表は無作為化して測り直した
+            # ほう（tenpai_table_rand.json）を引く。根拠は results/experiment-
+            # riichi-ev.md。600局では和了・流局に差が出ていないので、
+            # **10000半荘の検証がまだ要る**。
+            riichi_ev_veto=True,
             safety_weight=0.5,
             value_weight=1.4,
             last_place_desperation=0.18,
