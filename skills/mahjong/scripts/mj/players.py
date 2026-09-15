@@ -85,7 +85,15 @@ class Style:
     no_yaku_no_blend: bool = True
     riichi_ev_veto: bool = False
     riichi_ev_margin: int = 200   # ダマがこれだけ上回っていたら止める（点）
-    damaten_value: int = 8000  # これ以上ダマで打点があればリーチしない
+    # これ以上ダマで打点があればリーチしない。
+    # 混成卓（2対2、席を入れ替えて各6000席局）で、12000 が3通りすべてに勝った。
+    #   対 8000            和了 +0.38pt / 放銃 -0.27pt / 素点 +31.1
+    #   対 5200            和了 +0.75pt / 放銃 -0.47pt / 素点 +84.4
+    #   対 99999(ダマ禁止)  和了 +0.70pt / 放銃 -0.93pt / 素点  +4.7
+    # 1つずつは1SE前後だが、3つとも和了・放銃の両方が同じ向きに動いている。
+    # この値は以前 dama_ron_value が壊れた状態で決めたものだったので、
+    # 修正後に測り直した。結論は変わらなかった。
+    damaten_value: int = 12000
     riichi_bad_wait_cheap: bool = True  # 悪形・安手でもリーチするか
     safety_weight: float = 1.0  # 押すときの安全牌への寄り
     value_weight: float = 1.0  # 打点への寄り（受け入れを削ってでも打点を取るか）
