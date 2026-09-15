@@ -522,7 +522,10 @@ class Player:
             elif self.style.river_read:
                 r = reading.wait_risk(p, tile, seen, view.me.hand)
             else:
-                r = danger([tile], p.river_counts, seen, late=view.turn >= 8)[0].risk
+                # mine を渡して「切れている枚数」を正しく数える。自分の手牌にある
+                # ぶんは相手の待ちを消さないので、引かないと安全に見えすぎる。
+                r = danger([tile], p.river_counts, seen, late=view.turn >= 8,
+                           mine=view.me.hand)[0].risk
             total += r * level * weight
         return total
 

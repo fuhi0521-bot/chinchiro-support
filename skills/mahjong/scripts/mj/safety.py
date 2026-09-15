@@ -81,14 +81,43 @@ def _wall_state(t: int, seen) -> str:
     return ""
 
 
-def danger(candidates, river_counts, seen_counts=None, *, late: bool = True) -> list[Danger]:
+# その牌が場に何枚切れているかによる倍率 ［実測］
+#
+# 400局・82,418標本。テンパイしている相手に対する当たり牌率。
+# 「切れている枚数」は **自分の手牌と本人の河を除いた数**。
+#
+#   0枚(生牌) 10.04%  →  1.00
+#   1枚        6.09%  →  0.61
+#   2枚        4.87%  →  0.49
+#   3枚        2.30%  →  0.23
+#
+# **1枚切れているだけで4割安全になり、3枚切れの無筋はスジ(≈5%)より安全。**
+# 効いている理由は2つで、2つ目のほうが大きい。
+#   1. シャンポン・単騎はその牌そのものを抱えている必要がある
+#   2. 他家の河に切れている牌は、相手がテンパイしていたなら通っている
+#      （通っていればフリテンで和了れない）
+#
+# 字牌にはもともと入っていたのに、**数牌には入っていなかった**。
+# 実測でいちばん効く要素なので、位置とスジだけの序列は並び順を外す。
+GONE_FACTOR = (1.0, 0.61, 0.49, 0.23)
+
+
+def danger(candidates, river_counts, seen_counts=None, *, late: bool = True,
+           mine=None) -> list[Danger]:
     """候補牌を安全な順に並べて返す。
 
     river_counts: その相手の捨て牌（リーチ後に通った牌を含む）の枚数配列
     seen_counts : 場に見えている全ての牌（自分の手牌・ドラ表示・全員の河）
+    mine        : 自分の手牌の枚数配列。渡すと「切れている枚数」を正しく数える。
+                  省略すると、いま検討している1枚ぶんだけを引く
     """
     # seen_counts には河も含めて渡す想定。渡されなければ河だけを既知とする。
     seen = [max(a, b) for a, b in zip(seen_counts, river_counts)] if seen_counts else list(river_counts)
+
+    def gone_outside(t: int) -> int:
+        """自分の手牌と本人の河を除いた、場に見えている枚数（0-3）。"""
+        held = mine[t] if mine is not None else 1
+        return max(0, min(3, seen[t] - river_counts[t] - held))
     out: list[Danger] = []
     for t in candidates:
         if river_counts[t]:
@@ -133,6 +162,14 @@ def danger(candidates, river_counts, seen_counts=None, *, late: bool = True) -> 
 
         if wall == NOCHANCE and out[-1].label not in (NOCHANCE,):
             out[-1].note = (out[-1].note + " / 壁あり").strip(" /")
+
+        # 場に何枚切れているか。実測でいちばん効く要素（GONE_FACTOR 参照）。
+        # スジ・壁の判定とは別の理屈（フリテンと、シャンポン・単騎の枚数）なので
+        # 掛け合わせる。現物はここに来ない。
+        g = gone_outside(t)
+        if g:
+            out[-1].risk *= GONE_FACTOR[g]
+            out[-1].note = (out[-1].note + f" / {g}枚切れ").strip(" /")
 
     out.sort(key=lambda d: (d.risk, -rank_of(d.tile) if d.tile < HONOR else 0))
     return out
