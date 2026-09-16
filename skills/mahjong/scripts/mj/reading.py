@@ -188,8 +188,28 @@ HONOR_RISK = 1.14
 GENBUTSU_RISK = 0.0
 
 # スジの効き方（無スジを1.0としたときの倍率）
-SUJI_FACTOR = 0.50   # 両側が切れている
+#
+# ［確認 700局・124,299標本］枚数・早切り・位置を差し引いたうえで
+# 観測/期待を取ると、4-6 の係数はほぼ合っていた:
+#   中スジ 0.48（係数0.50） / 片スジ 0.82（係数0.86）
+#
+# 注意: 素の当たり牌率の比を係数にしてはいけない。素で測ると
+# 中スジ0.34倍・片スジ0.65倍に見えるが、中スジになる牌は早切りの隣で
+# あることも多く、場に枚数も出ている。その分まで**スジの手柄にすると
+# 他の係数と二重に掛かる**。人が読む表（reading.md §5.7）は素の比でよい。
+SUJI_FACTOR = 0.50   # 4-6 の両側が切れている（中スジ）
 HALF_SUJI_FACTOR = 0.86
+
+# 1-3 / 7-9 のスジは、両面が1通りしかないので1枚で全部消える。
+# ここは長く 4-6 の中スジと同じ 0.50 にしていたが、**左右で違った**。
+#
+#   端スジ(1-3)  観測330/期待496  → 0.59   例: 5が切れている2
+#   端スジ(7-9)  観測212/期待457  → 0.41   例: 5が切れている8
+#
+# 差は約4σ。上側のスジのほうが安全。1-3 は両面以外の使い道
+# （辺張12、対子、三色の下）が残りやすいのに対し、7-9 はスジが通ると
+# 残る形が薄いため、と読める。
+END_SUJI_FACTOR = {"low": 0.59, "high": 0.41}
 
 # 早切り（1〜6巡目の【手出し】）からの距離。近いほど安全。
 #
@@ -441,12 +461,15 @@ def wait_risk(player, tile: int, seen=None, mine=None) -> float:
 
     lo = player.river_counts[base_idx + r - 4] if r >= 4 else 0
     hi = player.river_counts[base_idx + r + 2] if r <= 6 else 0
+    end = None
     if 1 <= r <= 3:
         both = bool(hi)
         half = False
+        end = "low"
     elif 7 <= r <= 9:
         both = bool(lo)
         half = False
+        end = "high"
     else:
         both = bool(lo) and bool(hi)
         half = bool(lo) != bool(hi)
@@ -454,7 +477,8 @@ def wait_risk(player, tile: int, seen=None, mine=None) -> float:
         # 対々和の待ちはシャンポンか単騎。両面が無いのでスジは意味を持たない
         risk *= TOITOI_SUJI
     elif both:
-        risk *= SUJI_FACTOR
+        # 端（1-3 / 7-9）のスジは 4-6 の中スジと効きが違う
+        risk *= END_SUJI_FACTOR[end] if end else SUJI_FACTOR
     elif half:
         risk *= HALF_SUJI_FACTOR
     if lean is not None:

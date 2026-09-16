@@ -59,7 +59,7 @@ def can_ron(p, win) -> bool:
 # 河読みを部品ごとに切って、同じ局面で当たり具合を比べる。
 # すべて「その部品だけを外す」形にしてあるので、差分がその部品の貢献になる。
 KNOBS = ("SEEN_FACTOR", "HONOR_SEEN_FACTOR", "USE_PASSED",
-         "EARLY_FACTOR", "SUJI_FACTOR", "HALF_SUJI_FACTOR")
+         "EARLY_FACTOR", "SUJI_FACTOR", "HALF_SUJI_FACTOR", "END_SUJI_FACTOR")
 
 ABLATIONS = {
     "現行（全部入り）": {},
@@ -67,11 +67,14 @@ ABLATIONS = {
                     HONOR_SEEN_FACTOR=(1.0, 0.5, 0.5, 0.5)),
     "通った牌を見ない": dict(USE_PASSED=False),
     "早切りの周辺を見ない": dict(EARLY_FACTOR={}),
-    "スジを見ない": dict(SUJI_FACTOR=1.0, HALF_SUJI_FACTOR=1.0),
+    "スジを見ない": dict(SUJI_FACTOR=1.0, HALF_SUJI_FACTOR=1.0,
+                    END_SUJI_FACTOR={"low": 1.0, "high": 1.0}),
+    "端スジを左右で分けない": dict(END_SUJI_FACTOR={"low": 0.50, "high": 0.50}),
     "牌の位置だけ": dict(SEEN_FACTOR=(1.0,) * 4,
                    HONOR_SEEN_FACTOR=(1.0, 0.5, 0.5, 0.5),
                    USE_PASSED=False, EARLY_FACTOR={},
-                   SUJI_FACTOR=1.0, HALF_SUJI_FACTOR=1.0),
+                   SUJI_FACTOR=1.0, HALF_SUJI_FACTOR=1.0,
+                   END_SUJI_FACTOR={"low": 1.0, "high": 1.0}),
 }
 
 
