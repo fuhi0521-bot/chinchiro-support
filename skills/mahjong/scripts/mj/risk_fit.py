@@ -39,6 +39,23 @@ def winning_tiles(p) -> set:
     return out
 
 
+def can_ron(p, win) -> bool:
+    """この相手はそもそもロンで和了れるか。
+
+    フリテンなら **どの牌でも** ロンできない。待ちのうち1枚でも本人の河に
+    あれば（リーチ者なら見逃した牌 passed も含めて）永久フリテン。
+
+    ここを見ずに「待ちに含まれるか」で当たりを数えると、**通るはずの牌を
+    当たりに数える**。しかもフリテンになりやすいのは、その周辺を自分で
+    切っている相手 ＝ スジや早切りの隣という、いちばん安全な区分。
+    つまりこの漏れは **安全な牌の危険度だけを持ち上げる**方向に偏る。
+    """
+    if any(p.river_counts[t] for t in win):
+        return False
+    passed = getattr(p, "passed", None)
+    return not (passed and any(t in passed for t in win))
+
+
 # 河読みを部品ごとに切って、同じ局面で当たり具合を比べる。
 # すべて「その部品だけを外す」形にしてあるので、差分がその部品の貢献になる。
 KNOBS = ("SEEN_FACTOR", "HONOR_SEEN_FACTOR", "USE_PASSED",
@@ -69,7 +86,7 @@ def _variant_risk(over, p, t, seen, mine):
             setattr(reading, k, v)
 
 
-def collect(games: int, seed: int, min_turn: int = 6):
+def collect(games: int, seed: int, min_turn: int = 6, keep_furiten: bool = False):
     rows = []
     tenpai_rows = []
     orig = pl.Player.discard
@@ -87,6 +104,8 @@ def collect(games: int, seed: int, min_turn: int = 6):
                     continue
                 win = winning_tiles(p)
                 if not win:
+                    continue
+                if not keep_furiten and not can_ron(p, win):
                     continue
                 for t in range(NUM_TILES):
                     if not me.hand[t]:
@@ -137,9 +156,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--games", type=int, default=300)
     ap.add_argument("--seed", type=int, default=13)
+    ap.add_argument("--keep-furiten", action="store_true",
+                    help="フリテンの相手も当たりに数える（旧い測り方の再現用）")
     a = ap.parse_args()
 
-    rows, tenpai_rows = collect(a.games, a.seed)
+    rows, tenpai_rows = collect(a.games, a.seed, keep_furiten=a.keep_furiten)
     hit = sum(1 for r in rows if r[1])
     print(f"\n標本 {len(rows)} 件 / 当たり牌 {hit} 件 ({hit / len(rows) * 100:.2f}%)")
     print("■ 当たり牌読み（wait_risk）— 部品を1つずつ外して比べる")

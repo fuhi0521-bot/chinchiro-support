@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mj import fast  # noqa: E402
 from mj import players as pl  # noqa: E402
 from mj import reading  # noqa: E402
+from mj import risk_fit  # noqa: E402
 from mj.game import Game  # noqa: E402
 from mj.tiles import HONOR, NUM_TILES  # noqa: E402
 
@@ -103,6 +104,9 @@ def collect(games: int, seed: int, lineup: str = "named"):
                     continue
                 win = winning_tiles(p)
                 if not win:
+                    continue
+                # フリテンならどの牌でもロンできない。risk_fit.can_ron と同じ理屈。
+                if not risk_fit.can_ron(p, win):
                     continue
                 loose, strict = classify(p)
                 # 待ちの内訳
